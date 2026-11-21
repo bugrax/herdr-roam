@@ -261,25 +261,60 @@ async function rewriteFiles(items, rw, stage) {
   return rw.changes;
 }
 
-/** Waits until agent `x` isn't mid-turn; reports what it waits for. */
-async function settle(x, report, cancelled) {
+/**
+ * Waits until agent `x` isn't mid-turn; reports what it waits for, and
+ * `waiting(address | null)` says whether it is waiting at all. Once `hurry()`
+ * is true it stops waiting for agents its adapter can interrupt, and marks
+ * them `x.hurried`.
+ */
+async function settle(x, report, cancelled, { hurry = () => false, waiting = () => {} } = {}) {
+  const canHurry = Boolean(adapterById(x.adapter).interrupt);
+  x.hurried = false;
   for (;;) {
     if (cancelled()) throw new Cancelled();
     const t = await hcj(["get", x.address]);
     const st = t.status?.state;
+    const busy = st === "working" || st === "blocked";
+    if (busy && canHurry && hurry()) {
+      x.t = t;
+      x.hurried = true;
+      waiting(null);
+      return;
+    }
+    if (busy) waiting(x.address);
+    if (busy && hurry()) report(`${x.address} (${adapterById(x.adapter).name}) can't be cut off: waiting for its turn…`);
+    else if (st === "working") report(`${x.address} is finishing its turn${t.status?.msg ? ` (${t.status.msg})` : ""}…`);
+    else if (st === "blocked") report(`${x.address} is waiting for you${t.status?.msg ? `: ${t.status.msg}` : ""}`);
     if (st === "working") {
-      report(`${x.address} is finishing its turn…`);
-      await hc(["wait", x.address, "--timeout", "10"]).catch(() => null);
+      // Short waits, so Move now takes effect quickly.
+      await hc(["wait", x.address, "--timeout", "2"]).catch(() => null);
       continue;
     }
     if (st === "blocked") {
-      report(`${x.address} is waiting for you${t.status?.msg ? `: ${t.status.msg}` : ""}`);
-      await sleep(1500);
+      await sleep(1000);
       continue;
     }
+    waiting(null);
     x.t = t;
     return;
   }
+}
+
+/**
+ * What an agent that Move now cut off is told once it runs again: on the
+ * target (`moved`), or back here after a rollback.
+ */
+export function resumeNote(cut, moved = true) {
+  // Esc writes "The user doesn't want to proceed with this tool use": without
+  // this, the agent takes it as a no and waits for permission.
+  return [
+    moved ? "[roam] This session just moved to another machine." : "[roam] roam started moving this session to another machine, then undid the move.",
+    cut.turn && "To do that it interrupted your last turn, so a tool call that shows as rejected or interrupted was not the user's decision: run it again if you still need its result.",
+    cut.background && `${cut.turn ? "It also" : "To do that it"} stopped the commands you had running in the background: start them again if you still need them.`,
+    "Then continue where you left off.",
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** Waits until `ok()` is true, up to `ms`. */
@@ -330,15 +365,26 @@ export async function move(p, ui) {
     // Let the person's sync catch up while agents still work: once they
     // pause, only their last turn's changes are left to wait for.
     for (const pr of p.projects) await matchFolder(p, pr, stage, (d) => step("finish", "run", d), { copy: false, cancelled: ui.cancelled });
-    for (const x of agents) await settle(x, (d) => step("finish", "run", d), ui.cancelled);
-    step("finish", agents.length ? "done" : "skip", agents.length ? `${agents.length === 1 ? "the agent is" : `${agents.length} agents are`} idle` : "no agents here");
+    const wait = { hurry: ui.hurry ?? (() => false), waiting: ui.waiting ?? (() => {}) };
+    for (const x of agents) await settle(x, (d) => step("finish", "run", d), ui.cancelled, wait);
+    const hurried = agents.filter((x) => x.hurried).length;
+    step(
+      "finish",
+      agents.length ? "done" : "skip",
+      !agents.length ? "no agents here" : hurried ? `cutting off ${hurried === 1 ? "1 agent" : `${hurried} agents`} now` : `${agents.length === 1 ? "the agent is" : `${agents.length} agents are`} idle`,
+    );
 
     step("pause", "run");
     pausedAt = Date.now();
     for (const x of agents) {
-      await settle(x, (d) => step("pause", "run", d), () => false);
-      step("pause", "run", `stopping ${x.address}…`);
+      await settle(x, (d) => step("pause", "run", d), () => false, wait);
       const a = adapterById(x.adapter);
+      if (x.hurried) {
+        step("pause", "run", `interrupting ${x.address}…`);
+        x.cut = await a.interrupt(p.src, x.t, x.session);
+        say(`${x.address}: cut off ${JSON.stringify(x.cut)}`);
+      }
+      step("pause", "run", `stopping ${x.address}…`);
       live.agents.push({
         address: x.address,
         id: x.session.id,
@@ -347,6 +393,8 @@ export async function move(p, ui) {
         cwd: x.cwd,
         space: x.t?.labels?.["herdr.space"] ?? null,
         tab: x.t?.labels?.["herdr.tab"] ?? null,
+        adapter: x.adapter,
+        cut: x.cut ?? null,
       });
       await save(); // before it stops: a cut-off move must know to bring it back
       await a.stop(p.src, x.t, x.session);
@@ -418,6 +466,11 @@ export async function move(p, ui) {
       await adapterById(x.adapter).ready(x.dstAddress, { trust: p.settings.carryTrust, report: (d) => step("verify", "run", `${x.dstAddress}: ${d}`) });
     }
     const downtime = pausedAt ? Date.now() - pausedAt : 0;
+    // Agents Move now cut off pick their turn back up.
+    for (const x of agents.filter((y) => y.cut?.turn || y.cut?.background)) {
+      step("verify", "run", `${x.dstAddress}: telling it to continue…`);
+      await hc(["send", x.dstAddress, resumeNote(x.cut)]).catch((e) => say(`continue ${x.dstAddress}: ${e.message}`));
+    }
     step("verify", agents.length ? "done" : "skip", agents.length ? `back in ${fmtSecs(downtime)}` : "");
 
     step("retire", "run");
@@ -450,7 +503,13 @@ export async function move(p, ui) {
       // An agent that started there despite an error (the session id is unique).
       for (const x of did.stopped) await sh(p.dst.name, 'pkill -f -- "$1" 2>/dev/null; true', [x.session.id]).catch(() => null);
       await unpush(p.dst.name, did.wrote, p.tx);
-      for (const x of did.stopped) await resumeHere(p, x).catch((err) => say(`resume ${x.address}: ${err.message}`));
+      for (const x of did.stopped) {
+        const addr = await resumeHere(p, x).catch((err) => {
+          say(`resume ${x.address}: ${err.message}`);
+          return null;
+        });
+        if (addr) await carryOn(adapterById(x.adapter), addr, x.cut, false).catch((err) => say(`continue ${addr}: ${err.message}`));
+      }
     }
     for (const x of p.panes) await hc(["label", x.address, "roam.moving="]).catch(() => null);
     live.done = true;
@@ -521,14 +580,22 @@ async function resumeHere(p, x) {
   if (t?.state === "live" && isShell(t.foreground?.argv?.[0])) {
     // Its pane is a shell again: type the resume command there.
     await hc(["send", x.address, a.resumeLine(x.session)]);
-    return;
+    return x.address;
   }
   const labels = x.t?.labels ?? {};
-  await hcj([
+  const r = await hcj([
     "run", ...onArgs(p.src.name), "--bg", "--keep", "--no-parent", "--cwd", x.cwd,
     "--label", `herdr.space=${labels["herdr.space"]}`, "--label", `herdr.tab=${labels["herdr.tab"]}`,
     "--", ...inShell(p.src.shell, a.resumeArgv(x.session, compile([]))),
   ]);
+  return r.address;
+}
+
+/** Tells an agent that Move now cut off to carry on, once it's up again. */
+async function carryOn(adapter, address, cut, moved) {
+  if (!cut?.turn && !cut?.background) return;
+  await adapter.ready(address, { trust: false });
+  await hc(["send", address, resumeNote(cut, moved)]);
 }
 
 /**
@@ -598,14 +665,19 @@ export async function recover(path) {
   for (const a of r.agents) {
     const here = await agentRunning(a.address);
     if (here.live && !here.shell) continue; // it never stopped, or it's back already
+    let addr = a.address;
     if (here.live) await hc(["send", a.address, a.line]).catch(() => null);
     else
-      await hcj([
-        "run", ...onArgs(r.src), "--bg", "--keep", "--no-parent", "--cwd", a.cwd,
-        ...(a.space ? ["--label", `herdr.space=${a.space}`] : []), ...(a.tab ? ["--label", `herdr.tab=${a.tab}`] : []),
-        "--", ...a.argv,
-      ]).catch(() => null);
+      addr = (
+        await hcj([
+          "run", ...onArgs(r.src), "--bg", "--keep", "--no-parent", "--cwd", a.cwd,
+          ...(a.space ? ["--label", `herdr.space=${a.space}`] : []), ...(a.tab ? ["--label", `herdr.tab=${a.tab}`] : []),
+          "--", ...a.argv,
+        ]).catch(() => null)
+      )?.address;
     await hc(["label", a.address, "roam.moving="]).catch(() => null);
+    const ad = adapterById(a.adapter);
+    if (addr && ad) await carryOn(ad, addr, a.cut, false).catch(() => null);
     resumed++;
   }
   j.result = { ok: false, recovered: true, error: `cut off while ${r.phase}; rolled back afterwards` };

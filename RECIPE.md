@@ -56,6 +56,12 @@ Text uses the theme colors (`foreground`, `muted`, `dim`).
 - `roam.next`, `roam.prev`, `roam.go` and `roam.back` (`herdr-app do roam.go`) do the same from scripts.
 - Agents that are `working` are waited for. Agents that are `blocked` wait for the person, and the
   step's detail says so.
+- While it waits for an agent, the moving footer says "<address> is still working. Move now
+  interrupts it, and it carries on there." with a primary **Move now** button (also N, or
+  `roam.now`). Move now cuts the agent off the way Esc does, then moves it, and once it runs on the
+  target types a `[roam]` message telling it what was interrupted (its turn, its background
+  commands), that this wasn't the person's decision, and to continue. Agents whose adapter has no
+  `interrupt` are still waited for.
 - When the move finishes, a toast says so, and clicking it selects the new space. The new space is
   selected before the old one closes, which may close the dialog too.
 - `roam.preview-pick|planning|review|play|done|failed` shows a made-up move (`preview.js`) for

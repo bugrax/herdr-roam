@@ -25,13 +25,36 @@ and resumes it by id on the other machine.
 | Step | What happens | Why |
 |---|---|---|
 | **Check the target** | Starts and removes a throwaway terminal there (tried twice), finds `claude` through the login shell, reads free disk space, compares Claude accounts. | Fail before anything changes. A target that can't start terminals is caught here, not after agents pause. |
-| **Let agents finish their turn** | Waits for your sync to bring the project folders up to date, while agents still work. Then polls each agent's status: `working` waits with `hc wait`, and `blocked` (a permission prompt) waits for you. | Pausing mid-turn could cut off an edit or a tool call. Syncing first keeps the pause short. |
+| **Let agents finish their turn** | Waits for your sync to bring the project folders up to date, while agents still work. Then polls each agent's status: `working` waits with `hc wait`, and `blocked` (a permission prompt) waits for you. **Move now** stops the wait (see below). | Pausing mid-turn could cut off an edit or a tool call. Syncing first keeps the pause short. |
 | **Pause agents** | Ctrl+C until Claude exits (up to three times, since the first may only clear a half-typed prompt), then SIGTERM if needed. Confirms the process is gone. | A clean exit flushes the transcript. From here on, any failure rolls back. |
 | **Match project files** | Fingerprints each project folder on both machines. If they differ, waits for your sync (90 s by default). If the folder is missing on the target, copies it. | The agent must find the same files when it continues. |
 | **Move sessions** | Lists the session's files, pulls them with `tar` over `hc exec`, rewrites paths, and pushes them to the target. | The transcript is the agent's memory. |
 | **Start on the target** | Starts one terminal per pane with `hc run --on <target>`, labelled with new space and tab ids. Herdr adopts labelled terminals into a space. The space and its tabs keep their names. | It's the same space, now on the other machine. |
 | **Wait for agents** | Reads each new terminal's screen and status until Claude is up. Answers the folder-trust prompt when `carryTrust` is on. Fails fast if Claude exits. | The move only counts once the agents run. |
 | **Close the old space** | Renames each source transcript to `<id>.jsonl.roamed`, selects the new space, then closes the old one. | A session must not be resumed in two places. The old space closes last because closing it can close the dialog. |
+
+## Move now
+
+Waiting for a turn to end is the safe default, but a turn can take minutes, and an agent that
+left a dev server or a long test running in the background shows as working until it stops.
+**Move now** cuts in instead:
+
+- Claude Code keeps its own state in `~/.claude/sessions/<pid>.json`: `busy` mid-turn, `shell`
+  when the turn is over but background commands still run, `idle`. herdr shows both busy and
+  shell as working.
+- Mid-turn (or at a permission prompt), roam presses Esc once and waits for `busy` to clear. Claude
+  Code closes the tool call it was in with a result ("The user doesn't want to proceed with this
+  tool use") and `[Request interrupted by user for tool use]`, and kills its command. The
+  transcript stays whole: nothing is left without its result.
+- Then the agent stops as usual, which also ends its background commands.
+- On the target, once the agent is up, roam types a message: the session moved, its turn and/or
+  background commands were stopped to do that, a tool call that shows as rejected was not the
+  person's decision, and it should run what it still needs and continue. Without that last part,
+  Claude reads the Esc as a no and waits for permission. With it, in testing, it ran the
+  interrupted command again on the new machine.
+- After a rollback the same message, worded for an undone move, goes to the agent here.
+
+Antigravity CLI has no `interrupt` yet, so Move now still waits for its turn.
 
 ## Moving files
 

@@ -133,6 +133,41 @@ export async function stop(m, t, s) {
   await interruptUntilGone(m, t.address, s.pid, "Claude");
 }
 
+// Claude Code's own state, from sessions/<pid>.json: "busy" mid-turn, "shell"
+// when its turn is over but background shells still run, "idle". herdr shows
+// both busy and shell as working.
+async function ownState(m, pid) {
+  const raw = await readTextFile(`${m.home}/.claude/sessions/${pid}.json`, { on: m.name }).catch(() => null);
+  try {
+    return raw ? (JSON.parse(raw).status ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ends the agent's turn now, the way Esc does. Claude Code closes the tool call
+ * it was in ("[Request interrupted by user for tool use]") and kills its
+ * command, so the history stays whole. Background shells are left to `stop`.
+ * Resolves with what was cut off: { turn, background }.
+ */
+export async function interrupt(m, t, s) {
+  const before = await ownState(m, s.pid);
+  const turn = t.status?.state === "blocked" || (before !== "idle" && before !== "shell");
+  let after = before;
+  if (turn) {
+    // One Esc is enough; another only if it's still busy. Two in a row at an
+    // idle prompt would open Claude's rewind menu.
+    for (let i = 0; i < 3; i++) {
+      await hc(["keys", t.address, "esc"]).catch(() => null);
+      const end = Date.now() + 4000;
+      while ((after = await ownState(m, s.pid)) === "busy" && Date.now() < end) await sleep(250);
+      if (after !== "busy") break;
+    }
+  }
+  return { turn, background: before === "shell" || after === "shell" };
+}
+
 /** Warnings for the review, about this session on that target. */
 export function notes(s, { dst }) {
   return dst.user === "root" && s.argv.includes("--dangerously-skip-permissions")

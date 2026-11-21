@@ -145,6 +145,8 @@ export default class Roam extends View {
     this.t0 = Date.now();
     this.paused = false;
     this.cancel = false;
+    this.hurry = false; // Move now: cut working agents off instead of waiting
+    this.waitingOn = null; // the agent the move is waiting for, if any
     const finish = (res, cx) => {
       if (this.result) return;
       this.result = res;
@@ -167,6 +169,12 @@ export default class Roam extends View {
           cx.notify();
         },
         cancelled: () => this.cancel,
+        hurry: () => this.hurry,
+        waiting: (addr) => {
+          if (this.waitingOn === addr) return;
+          this.waitingOn = addr;
+          cx.notify();
+        },
         // Said before the old space closes, which may close this dialog too.
         finished: (r) => finish(r, cx),
         track: (live) => (this.live = live),
@@ -291,7 +299,14 @@ export default class Roam extends View {
       if (this.view === "pick") this.pick(this.sel, cx);
       else if (this.view === "review") this.go(cx);
       else if (this.view === "done" || this.view === "failed") this.dismiss();
-    } else if (c === "back" || c === "close") this.escape(cx);
+    } else if (c === "now") this.moveNow();
+    else if (c === "back" || c === "close") this.escape(cx);
+  }
+
+  // Stop waiting for agents to finish their turn: cut them off now (the way
+  // Esc does), and they carry on with it on the target.
+  moveNow() {
+    if (this.view === "moving" && !this.paused && this.waitingOn) this.hurry = true;
   }
 
   key(e, cx) {
@@ -301,6 +316,7 @@ export default class Roam extends View {
     else if (k === "up" || k === "k") this.command("prev", cx);
     else if (k === "enter") this.command("go", cx);
     else if (k === "r") this.command("recover", cx);
+    else if (k === "n") this.command("now", cx);
     else return;
     cx.stop_propagation();
     cx.notify();
@@ -545,6 +561,18 @@ export default class Roam extends View {
       .when(state === "fail" && Boolean(s?.detail), (el) => el.child(div().pl(23).pt(3).text_size(12).line_height("18px").text_color(t.blocked).child(s.detail)));
   }
 
+  canMoveNow() {
+    return this.view === "moving" && !this.paused && Boolean(this.waitingOn) && !this.hurry && !this.isPreview;
+  }
+
+  movingHint() {
+    if (this.paused) return "Keep this open until it finishes.";
+    if (this.hurry && this.waitingOn) return `${this.waitingOn} can't be interrupted, so roam waits for its turn.`;
+    if (this.hurry) return "Interrupting. It carries on there.";
+    if (this.waitingOn) return `${this.waitingOn} is still working. Move now interrupts it, and it carries on there.`;
+    return "Esc cancels until agents pause.";
+  }
+
   movingView(t) {
     const elapsed = Date.now() - (this.t0 ?? Date.now());
     return v_flex()
@@ -554,8 +582,9 @@ export default class Roam extends View {
         h_flex()
           .pt(14)
           .items_center()
-          .child(div().flex_1().text_size(11.5).text_color(t.dim).child(this.paused ? "Keep this open until it finishes." : "Esc cancels until agents pause."))
-          .child(div().text_size(11.5).text_color(t.dim).child(fmtSecs(elapsed))),
+          .child(div().flex_1().min_w(0).text_size(11.5).line_height("16px").text_color(t.dim).child(this.movingHint()))
+          .child(div().text_size(11.5).text_color(t.dim).child(fmtSecs(elapsed)))
+          .when(this.canMoveNow(), (el) => el.child(div().pl(12).child(button(t, "roam-now", "Move now", (cx) => { this.moveNow(); cx.notify(); }, { primary: true })))),
       );
   }
 

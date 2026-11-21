@@ -49,7 +49,7 @@ Antigravity CLI for **3.9 seconds**.
 ## What you get
 
 - **One dialog.** Press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd>, pick a machine, read what will move, press **Move**.
-- **Nothing cut off.** Agents pause only between turns. Mid-turn agents finish first, and agents waiting on a prompt wait for you.
+- **Nothing cut off.** Agents pause between turns: mid-turn agents finish first, and agents waiting on a prompt wait for you. Don't want to wait? **Move now** interrupts them the way Esc does, so the history stays whole, and tells them to carry on once they're there.
 - **The whole session.** For Claude Code: transcripts, subagent transcripts, project memory, `/rewind` history and todo lists. After the move, `/rewind` restores files byte for byte on the new machine. For Antigravity CLI (`agy`): the conversation and its working files.
 - **Any machine to any machine.** macOS and Linux, different usernames, different home folders, sessions that already moved once.
 - **Paths that make sense there.** `/Users/ana/code/app` becomes `/home/ana/code/app` everywhere in the session, including Claude Code's own folder names.
@@ -100,7 +100,9 @@ connected to it (`hc machine add`) and have Claude Code installed.
 2. Press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd> and pick a machine.
 3. Read the review: what moves, the folders and whether they're in sync, and the path rules.
 4. Press **Move**. Keep the dialog open until it says the space is on the other machine,
-   usually about ten seconds.
+   usually about ten seconds. If an agent is in the middle of something, roam waits for it.
+   Press **Move now** (or <kbd>N</kbd>) to interrupt it instead: it picks the work back up
+   on the other machine.
 
 <p align="center">
   <img src="docs/assets/pick.png" width="49%" alt="Picking a machine: build-box, studio-mac, and gpu-rig, which is offline">

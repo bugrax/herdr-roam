@@ -10,3 +10,14 @@ export async function exec(program, args = [], { timeout } = {}) {
 export async function hc() {
   throw new Error("hc() isn't available in tests");
 }
+
+// The rest of what the engine imports: enough to load it, not to run a move.
+export const spaces = () => [];
+export const panes = () => [];
+export const machines = () => [];
+export const run = () => {};
+export const appHome = () => "/nonexistent/herdr-app";
+export const setShared = () => {};
+export async function readTextFile() {
+  throw new Error("readTextFile() isn't available in tests");
+}

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Move now.** While roam waits for an agent's turn to end, a button (or N, or `roam.now`)
+  interrupts it instead, the way Esc does, so its history stays whole. Background commands it
+  left running count too: they used to keep a move waiting until they ended. Once the agent runs
+  on the target, roam tells it what was cut off and to carry on. Claude Code only for now.
+
 ## 0.1.0 (2026-11-21)
 
 First version.

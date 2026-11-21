@@ -29,6 +29,12 @@ export async function files(m, s) {}
 // Ends the agent cleanly so its files are complete; resolves when its process is gone.
 export async function stop(m, t, s) {}
 
+// Optional, for Move now: ends the agent's turn right away without breaking its history
+// (Claude Code: Esc). Resolves with what was cut off: { turn, background }. roam then
+// stops it as usual and, on the target, tells it to carry on. Without it, Move now
+// still waits for this agent's turn to end.
+export async function interrupt(m, t, s) {}
+
 // Where each file goes on target `dst` (cwd there: `dstCwd`), given the
 // compiled path rules `rw`. Each entry: { ...file, to, mode: "put" | "add", rewrite: boolean }
 //   put: replace what's there (a backup is kept); add: only if missing.
