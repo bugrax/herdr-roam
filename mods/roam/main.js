@@ -198,8 +198,9 @@ export default class Roam extends View {
     else if (kind === "done") [this.view, this.steps, this.result] = ["done", all("done"), sampleResult];
     else if (kind === "failed") {
       this.view = "failed";
-      this.steps = { ...all("done"), verify: { state: "fail", detail: "Claude exited there: command not found: claude" }, retire: undefined };
-      this.result = { ok: false, rolledBack: true, error: "Claude exited there: command not found: claude" };
+      const why = "Claude exited there: Not logged in · Please run /login";
+      this.steps = { ...all("done"), verify: { state: "fail", detail: why }, retire: undefined };
+      this.result = { ok: false, rolledBack: true, error: why };
       this.error = this.result.error;
     } else if (kind === "play") {
       this.view = "moving";

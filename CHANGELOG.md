@@ -1,0 +1,17 @@
+# Changelog
+
+## 0.1.0 (unreleased)
+
+First version.
+
+- Move a herdr space to another connected machine: this computer, or any machine in `hc machine ls`.
+- Claude Code adapter. Each session finishes its turn, exits cleanly, and is resumed by id on the
+  target with its original flags. Transcripts, subagents, project memory, `/rewind` history and
+  todos move with it.
+- Path rules: longest prefix first, in one pass, inside JSON. They follow Claude Code's
+  project-folder names and other homes a session mentions.
+- Project folders are compared on both machines. roam waits for your sync, or copies a folder that
+  is missing on the target.
+- A review lists every pane, folder and path rule, warns, and blocks moves that can't work.
+- Rollback after any failure once agents pause. A journal is written for every move.
+- A preview mode and a screenshot pipeline that only ever show made-up data.
