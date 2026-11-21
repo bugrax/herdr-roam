@@ -1,8 +1,9 @@
 # roam
 
-A dialog that moves the space you're looking at to another machine: its Claude Code sessions
-finish their turn, pause, and continue there with their whole history, in the same tabs, while
-the old space closes. If anything fails, everything resumes where it was.
+Keep working on another computer, right where you left off. Press ⌘⇧M, pick a machine, and the
+space you're in moves there in seconds: the same tabs and folders, and your Claude Code or
+Antigravity sessions carry on with their whole conversation. If anything goes wrong, everything
+goes back the way it was.
 
 ![roam](preview.png)
 
