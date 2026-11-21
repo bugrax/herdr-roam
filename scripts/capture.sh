@@ -7,6 +7,9 @@
 # It opens the roam dialog over your window for about 20 seconds. Nothing
 # moves: the preview never plans or moves a real space. Only the dialog ends
 # up in the assets (see scripts/compose.py).
+#
+# Keep the Herdr window visible and the screen awake: `herdr-app shot` saves
+# the last frame the window drew, and a hidden window stops drawing.
 set -eu
 
 out="${1:-docs/assets}"

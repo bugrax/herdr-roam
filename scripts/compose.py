@@ -53,6 +53,13 @@ def dialog_box(im):
     top, bottom = max(runs, key=lambda r: r[1] - r[0])
     if bottom - top < 120 * scale:
         return None, scale
+    # A real dialog differs from what's just outside it. A stale frame (the
+    # window stops drawing while it's hidden or the screen sleeps) shows one
+    # flat terminal there instead: that's no dialog.
+    mid = (top + bottom) // 2
+    outside = im.getpixel((left - 10 * scale, mid))
+    if all(abs(a - b) <= 6 for a, b in zip(outside[:3], bg[:3])):
+        return None, scale
     # Only the inside: the run is the popover between the top and bottom
     # borders. The border itself is drawn again by place(), so not one pixel
     # from outside the dialog is kept.
