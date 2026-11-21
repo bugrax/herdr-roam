@@ -1,0 +1,14 @@
+{
+  "name": "herdr-roam",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Move a live herdr space, agents and all, to another machine.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

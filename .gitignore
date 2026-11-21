@@ -1,0 +1,7 @@
+# Written into mod folders by Herdr itself
+mods/*/jsconfig.json
+mods/*/*.d.ts
+
+node_modules/
+.DS_Store
+*.log
