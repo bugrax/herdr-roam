@@ -6,6 +6,10 @@ the old space closes. If anything fails, everything resumes where it was.
 
 ![roam](preview.png)
 
+The review screen, with made-up data:
+
+![The review screen](docs/assets/review.png)
+
 ## What you see
 
 A centered modal dialog, 600 px wide, on the theme's `popover` background with 18 px padding.
