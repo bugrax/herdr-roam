@@ -7,8 +7,10 @@
 
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, props, closeOverlay, focused, spaces, machines, nextCommand, notify } from "herdr";
+import { theme, props, closeOverlay, focused, spaces, machines, nextCommand, notify, panes } from "herdr";
 import { plan, move, STEPS, fmtBytes, fmtSecs } from "./engine.js";
+import { samplePlan, sampleTargets, sampleSteps, sampleResult } from "./preview.js";
+import { sleep } from "./machine.js";
 
 const I = (name) => `mods/workspace-chrome/${name}.svg`;
 const LOGO = "mods/roam/roam.svg";
@@ -99,6 +101,7 @@ export default class Roam extends View {
 
   // Every connected machine but the space's own, this computer first.
   targets() {
+    if (this.isPreview) return sampleTargets;
     const here = this.space()?.machine ?? null;
     return machines()
       .filter((m) => (m.name ?? null) !== here)
@@ -109,6 +112,7 @@ export default class Roam extends View {
   pick(i, cx) {
     const target = this.targets()[i];
     if (!target || target.state === "unavailable") return;
+    if (this.isPreview) return this.preview("review", cx); // never plan a made-up move
     this.target = target;
     this.view = "planning";
     this.plan = null;
@@ -127,6 +131,7 @@ export default class Roam extends View {
 
   go(cx) {
     if (this.view !== "review" || !this.plan || this.plan.blockers.length) return;
+    if (this.isPreview) return this.preview("play", cx); // never move a made-up space
     this.view = "moving";
     this.steps = {};
     this.t0 = Date.now();
@@ -179,7 +184,46 @@ export default class Roam extends View {
     this.dismiss();
   }
 
+  // A made-up move (preview.js) for screenshots: `herdr-app do roam.preview-<view>`.
+  preview(kind, cx) {
+    this.isPreview = true;
+    this.plan = samplePlan(panes().find((p) => p.app === "claude-code")?.program);
+    this.target = sampleTargets[0];
+    this.result = null;
+    this.error = null;
+    this.steps = {};
+    this.sel = 0;
+    const all = (state) => Object.fromEntries(sampleSteps.map(([k, , done]) => [k, { state, detail: done }]));
+    if (kind === "pick" || kind === "planning" || kind === "review") this.view = kind;
+    else if (kind === "done") [this.view, this.steps, this.result] = ["done", all("done"), sampleResult];
+    else if (kind === "failed") {
+      this.view = "failed";
+      this.steps = { ...all("done"), verify: { state: "fail", detail: "Claude exited there: command not found: claude" }, retire: undefined };
+      this.result = { ok: false, rolledBack: true, error: "Claude exited there: command not found: claude" };
+      this.error = this.result.error;
+    } else if (kind === "play") {
+      this.view = "moving";
+      this.t0 = Date.now();
+      this.paused = false;
+      cx.spawn(async (cx) => {
+        for (const [key, ms, done, during] of sampleSteps) {
+          this.steps[key] = { state: "run", detail: during ?? "" };
+          if (key === "pause") this.paused = true;
+          cx.notify();
+          await sleep(ms);
+          this.steps[key] = { state: "done", detail: done };
+          cx.notify();
+        }
+        await sleep(600);
+        this.result = sampleResult;
+        this.view = "done";
+        cx.notify();
+      });
+    }
+  }
+
   command(c, cx) {
+    if (c.startsWith("preview-")) return this.preview(c.slice("preview-".length), cx);
     const n = this.targets().length || 1;
     if (c === "next" && this.view === "pick") this.sel = (this.sel + 1) % n;
     else if (c === "prev" && this.view === "pick") this.sel = (this.sel - 1 + n) % n;
@@ -205,7 +249,7 @@ export default class Roam extends View {
 
   header(t) {
     // Once the old space closes, the plan still knows its name.
-    const name = this.space()?.name ?? this.plan?.space?.name ?? null;
+    const name = this.isPreview ? this.plan.space.name : (this.space()?.name ?? this.plan?.space?.name ?? null);
     return v_flex()
       .child(
         h_flex()
@@ -259,7 +303,7 @@ export default class Roam extends View {
 
   pickView(t) {
     const list = this.targets();
-    if (!this.space()) return div().pt(14).text_size(12.5).text_color(t.dim).child("Open the space you want to move, then open roam again.");
+    if (!this.space() && !this.isPreview) return div().pt(14).text_size(12.5).text_color(t.dim).child("Open the space you want to move, then open roam again.");
     if (!list.length)
       return div().pt(14).text_size(12.5).line_height("19px").text_color(t.dim).child("No other machine is connected. Add one with Add machine in the sidebar (or `hc machine add`), then come back.");
     return v_flex()
@@ -295,7 +339,8 @@ export default class Roam extends View {
       .child(div().text_size(12.8).text_color(t.muted).child(`Looking at the sessions, folders and ${this.target?.label ?? "the target"}…`));
   }
 
-  paneRow(t, x) {
+  // A pane; its folder only when it isn't the one most panes share (that one is under Folders).
+  paneRow(t, x, common) {
     const p = this.plan;
     const what =
       x.kind === "agent" ? (x.session ? `Claude Code · ${x.session.id.slice(0, 8)} · ${fmtBytes(x.session.bytes)}` : "agent")
@@ -303,7 +348,7 @@ export default class Roam extends View {
       : "program";
     return v_flex()
       .px(10)
-      .py(6)
+      .py(5)
       .gap(3)
       .rounded(8)
       .child(
@@ -314,16 +359,18 @@ export default class Roam extends View {
           .child(div().flex_1().min_w(0).truncate().text_size(13).text_color(t.foreground).child(x.title || x.address))
           .child(div().flex_none().text_size(11.5).text_color(t.dim).child(what)),
       )
-      .child(
-        h_flex()
-          .pl(22)
-          .gap(6)
-          .items_center()
-          .text_size(11.5)
-          .text_color(t.dim)
-          .child(div().min_w(0).truncate().child(tilde(x.cwd, p.src.home)))
-          .child("→")
-          .child(div().min_w(0).truncate().child(tilde(x.dstCwd, p.dst.home))),
+      .when(x.cwd !== common, (el) =>
+        el.child(
+          h_flex()
+            .pl(22)
+            .gap(6)
+            .items_center()
+            .text_size(11.5)
+            .text_color(t.dim)
+            .child(div().min_w(0).truncate().child(tilde(x.cwd, p.src.home)))
+            .child("→")
+            .child(div().min_w(0).truncate().child(tilde(x.dstCwd, p.dst.home))),
+        ),
       );
   }
 
@@ -336,30 +383,44 @@ export default class Roam extends View {
       unknown: [t.dim, "too big to compare"],
       home: [t.dim, "home folder, not compared"],
     }[pr.state] ?? [t.dim, pr.state];
+    const from = tilde(pr.src, p.src.home);
+    const to = tilde(pr.dst, p.dst.home);
     return h_flex()
       .px(10)
       .h(26)
       .gap(8)
       .items_center()
       .child(div().size(7).flex_none().rounded(4).bg(color))
-      .child(div().flex_1().min_w(0).truncate().text_size(12.3).text_color(t.foreground).child(tilde(pr.dst, p.dst.home)))
+      .child(
+        h_flex()
+          .flex_1()
+          .min_w(0)
+          .gap(6)
+          .text_size(12.3)
+          .text_color(t.foreground)
+          .child(div().min_w(0).truncate().child(from))
+          .when(from !== to, (el) => el.child(div().text_color(t.dim).child("→")).child(div().min_w(0).truncate().child(to))),
+      )
       .child(div().flex_none().text_size(11.5).text_color(t.dim).child(label));
   }
 
   reviewView(t) {
     const p = this.plan;
     const rules = p.rules.filter((r) => r.from !== r.to);
+    const counts = new Map();
+    for (const x of p.panes) counts.set(x.cwd, (counts.get(x.cwd) ?? 0) + 1);
+    const common = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
     return v_flex()
       .child(this.route(t))
       .child(
         v_flex()
           .id("roam-review")
-          .max_h(360)
+          .max_h(440)
           .min_h(0)
           .flex_shrink(1)
           .overflow_y_scroll()
           .child(section(t, "What moves"))
-          .children(p.panes.map((x) => this.paneRow(t, x)))
+          .children(p.panes.map((x) => this.paneRow(t, x, common)))
           .when(p.projects.length > 0, (el) => el.child(section(t, "Folders")).children(p.projects.map((pr) => this.folderRow(t, pr))))
           .when(rules.length > 0, (el) =>
             el.child(section(t, "Paths it rewrites")).children(
