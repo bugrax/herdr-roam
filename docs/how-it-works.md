@@ -149,6 +149,7 @@ MacBook and a Linux box over Tailscale:
 | macOS → Linux | 13 · 1.6 MB | 100 | 8.5 s | 10.4 s |
 | macOS → macOS, another username (Claude Code) | 14 · 1.6 MB | 467 | 7.9 s | 8.4 s |
 | Linux → macOS (Antigravity CLI) | 8 · 495 KB | n/a | 3.9 s | 4.4 s |
+| macOS → macOS, another username, a long session with images | 24 · 26.7 MB | 5782 | 13.6 s | 15.3 s |
 
 Most of the pause is Claude exiting (about 1 to 2 s) and starting again on the target (about 3 s).
 

@@ -69,7 +69,14 @@ Ask your coding agent, inside herdr:
 
 > add the herdr mod github.com/bugrax/herdr-roam
 
-Or by hand:
+Or download the latest release:
+
+```sh
+curl -fsSL https://github.com/bugrax/herdr-roam/releases/latest/download/roam.tar.gz | tar -xz -C ~/.config/herdr-app/mods/
+herdr-app check ~/.config/herdr-app/mods/roam
+```
+
+Or from a clone:
 
 ```sh
 git clone https://github.com/bugrax/herdr-roam
