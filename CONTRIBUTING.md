@@ -13,6 +13,13 @@ npm test                                                 # unit tests, no depend
 herdr-app check ~/.config/herdr-app/mods/roam            # loads and renders the mod once
 ```
 
+Then add the shortcut from [`keys.json`](keys.json) to the `global` section of
+`~/.config/herdr-app/keys.json`. The mod doesn't bind it by itself:
+
+```json
+"cmd-shift-m": { "command": "mod.open", "args": { "name": "roam" } }
+```
+
 Open the dialog with `herdr-app do mod.open --name roam`. To see every screen without moving
 anything, run:
 
