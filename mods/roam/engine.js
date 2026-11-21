@@ -22,7 +22,7 @@ import { spaces, panes, machines, run, hc, appHome, readTextFile, setShared, sha
 import * as fs from "fs/promises";
 import { describe, sh, hcj, onArgs, sleep, isShell, inShell, shellWithNote, hex } from "./machine.js";
 import { compile, planRules, homeOf } from "./paths.js";
-import { pull, push, unpush, wipe } from "./transport.js";
+import { pull, push, unpush, dropBackups, wipe } from "./transport.js";
 import { compare, exists, sizeKb, SKIP } from "./projects.js";
 import * as claude from "./claude.js";
 
@@ -356,6 +356,8 @@ export async function move(p, ui) {
     step("retire", "run");
     const sameFile = (a, b) => p.src.home === p.dst.home && a === b;
     for (const x of agents) await adapterById(x.adapter).archive(p.src, x.session, x.dests, sameFile).catch((e) => say(`archive: ${e.message}`));
+    // Agents run there now: the target's backups were only for rollback.
+    await dropBackups(p.dst.name, did.wrote, p.tx);
     const result = { ok: true, total: Date.now() - t0, downtime, space: newSpace };
     await journal(stage, p, log, result);
     await wipe(`${stage}/src`);

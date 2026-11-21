@@ -85,5 +85,12 @@ export async function unpush(on, wrote, tx) {
   await local(there(on, script)).catch(() => null);
 }
 
+/** After a move that worked: drops the .roam-<tx>.bak copies (they're only for rollback). */
+export async function dropBackups(on, wrote, tx) {
+  if (!wrote.length) return;
+  const list = wrote.map(q).join(" ");
+  await local(there(on, `set -- ${list}; for t in "$@"; do rm -f "$t.roam-${tx}.bak"; done`)).catch(() => null);
+}
+
 /** Removes a folder here. */
 export const wipe = (dir) => local(`rm -rf ${q(dir)}`).catch(() => null);
