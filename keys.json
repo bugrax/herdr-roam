@@ -1,0 +1,5 @@
+{
+  "global": {
+    "cmd-shift-m": { "command": "mod.open", "args": { "name": "roam" } }
+  }
+}
