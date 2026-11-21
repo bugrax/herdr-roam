@@ -101,6 +101,8 @@ export function compile(rules) {
       return changes;
     },
     rules: keys.filter((k) => !table.get(k).dir).map((k) => ({ from: k, to: table.get(k).to })),
+    /** Every prefix it replaces, folder spellings included (what rewrite-perl.js applies). */
+    entries: keys.map((k) => ({ from: k, to: table.get(k).to, dir: table.get(k).dir })),
   };
 }
 

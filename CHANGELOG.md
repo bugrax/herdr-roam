@@ -17,3 +17,8 @@ First version.
 - A review lists every pane, folder and path rule, warns, and blocks moves that can't work.
 - Rollback after any failure once agents pause. A journal is written for every move.
 - A preview mode and a screenshot pipeline that only ever show made-up data.
+- Large sessions: paths are rewritten by perl in its own process. Doing it in the mod froze Herdr on a
+  10 MB transcript, and the move was lost when the dialog closed.
+- A move cut off by the dialog closing or Herdr quitting rolls back. The dialog starts the rollback as it
+  closes, and the next time it opens it offers to finish it (**Bring them back**).
+- Project folders are synced before agents pause, not after, so the pause stays short.

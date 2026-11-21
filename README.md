@@ -55,7 +55,7 @@ Antigravity CLI for **3.9 seconds**.
 - **Paths that make sense there.** `/Users/ana/code/app` becomes `/home/ana/code/app` everywhere in the session, including Claude Code's own folder names.
 - **The same layout.** Tabs keep their names and order, and the space keeps its name. Shells reopen in the same folder. A dev server's pane opens a shell that shows the command it was running.
 - **A dry run first.** The review lists every pane, folder and path rule, warns about anything unusual, and blocks moves that can't work (the target can't start terminals, Claude isn't installed there, the disk is full).
-- **Rollback.** If anything fails after agents pause, roam stops what it started on the target, puts back the files it wrote there, and resumes every agent where it was.
+- **Rollback.** If anything fails after agents pause, roam stops what it started on the target, puts back the files it wrote there, and resumes every agent where it was. That holds even when the dialog is closed or Herdr quits mid-move: it rolls back on the way out, and the next time it opens it offers to finish the job.
 - **Zero install.** Only the mod. Nothing on any machine beyond herdr-core, `sh` and `tar`.
 
 <p align="center">
@@ -110,7 +110,7 @@ Moving it back works the same way, from the other machine's group in the sidebar
 | **Antigravity CLI conversations** | The conversation database and its `brain` folder, resumed with `agy --conversation <id>` and its original flags. agy stores paths in binary form, so roam doesn't rewrite them. The review warns when the project's path differs on the target. |
 | **Shells** | Reopened in the same folder on the target. |
 | **Other programs** (dev servers, watchers) | Stopped with the old space. The new pane opens a shell that shows the command, ready for you to run again. |
-| **Project files** | Not copied when your sync already has them. roam compares the folders on both machines and waits (90 s by default) for your sync to catch up. A folder missing on the target is copied without `node_modules`, `.venv` and other rebuildable folders. |
+| **Project files** | Not copied when your sync already has them. roam compares the folders on both machines and waits (90 s by default) for your sync to catch up, while the agents still work, so they pause only for their last turn's changes. A folder missing on the target is copied without `node_modules`, `.venv` and other rebuildable folders. |
 | **Not carried over** | Background tasks an agent started, the in-memory state of MCP servers, and "allow for this session" approvals. Like after any restart, they start fresh. The first turn after a move rebuilds the prompt cache once. |
 
 roam never copies credentials. The target must be signed in to the agent, and for Claude Code the
@@ -141,7 +141,7 @@ Optional, in `~/.config/herdr-app/roam.json`:
 - [herdr](https://herdr.dev) with herdr-core 0.1.20 or newer, and the target added as a machine.
 - Claude Code 2.1 or newer on both machines. Tested with 2.1.323 to 2.1.330.
 - For Antigravity CLI sessions: `agy` 1.5 or newer on both machines. Tested with 1.5.6 and 1.5.14.
-- macOS or Linux on each machine.
+- macOS or Linux on each machine, with `perl` on the computer running the herdr window. macOS and common Linux distributions ship it. roam uses it to rewrite large sessions without freezing Herdr.
 
 ## How it works
 

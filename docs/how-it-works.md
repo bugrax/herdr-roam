@@ -25,7 +25,7 @@ and resumes it by id on the other machine.
 | Step | What happens | Why |
 |---|---|---|
 | **Check the target** | Starts and removes a throwaway terminal there (tried twice), finds `claude` through the login shell, reads free disk space, compares Claude accounts. | Fail before anything changes. A target that can't start terminals is caught here, not after agents pause. |
-| **Let agents finish their turn** | Polls each agent's status. `working`: waits with `hc wait`. `blocked` (a permission prompt): waits for you. | Pausing mid-turn could cut off an edit or a tool call. |
+| **Let agents finish their turn** | Waits for your sync to bring the project folders up to date, while agents still work. Then polls each agent's status: `working` waits with `hc wait`, and `blocked` (a permission prompt) waits for you. | Pausing mid-turn could cut off an edit or a tool call. Syncing first keeps the pause short. |
 | **Pause agents** | Ctrl+C until Claude exits (up to three times, since the first may only clear a half-typed prompt), then SIGTERM if needed. Confirms the process is gone. | A clean exit flushes the transcript. From here on, any failure rolls back. |
 | **Match project files** | Fingerprints each project folder on both machines. If they differ, waits for your sync (90 s by default). If the folder is missing on the target, copies it. | The agent must find the same files when it continues. |
 | **Move sessions** | Lists the session's files, pulls them with `tar` over `hc exec`, rewrites paths, and pushes them to the target. | The transcript is the agent's memory. |
@@ -42,6 +42,7 @@ therefore travel through the computer running the herdr window:
 source ──(hc exec: tar -c)──▶ this computer ──(hc exec -i: tar -x)──▶ target
 ```
 
+- Paths are rewritten by `perl` in its own process, streaming each file line by line, with the rules `paths.js` compiles. A 10 MB transcript takes a few hundredths of a second. Mods run in QuickJS on Herdr's own thread, and rewriting a session that size there froze the window long enough to look broken. `test/rewrite-perl.test.mjs` checks that perl and `paths.js` produce byte-identical output.
 - On macOS, `tar` runs with `--no-xattrs --no-mac-metadata`, so Linux `tar` gets no extended
   headers it doesn't understand.
 - On the target, files are unpacked into a temporary folder first, then each one is copied into
@@ -125,7 +126,9 @@ From the moment the first agent pauses, a failure triggers this, in order:
 3. Every paused agent resumes on the source. When its pane is a shell again, roam types the resume
    command there. Otherwise it starts a new terminal in the same space and tab.
 
-Before the first agent pauses, Esc cancels and nothing has changed. Each move writes a journal to
+Before the first agent pauses, Esc cancels and nothing has changed.
+
+A move can also be cut off outright: the dialog closed (⌘⇧M again), Herdr quit, the machine slept. roam writes the journal at every step: before each agent stops and after it stops, after files land on the target, and after each terminal starts there. Each entry holds what a rollback needs: the pane, the resume command, the space and tab, and what was started and written. A dialog that closes mid-move starts the rollback on its way out: it kills what started on the target and types the resume command into each stopped agent's pane. The next time roam opens, it lists every journal still marked as running and offers **Bring them back** (or `r`). That runs the full rollback, and an agent that is already running is left alone. Each move writes a journal to
 `~/.config/herdr-app/.roam/<tx>/journal.json` with the rules, panes and a timestamped log. It
 never contains copies of session files. Those are deleted after every move, successful or not.
 
@@ -145,8 +148,8 @@ Most of the pause is Claude exiting (about 1 to 2 s) and starting again on the t
 
 ## Edges
 
-- **Keep the dialog open** until the move finishes. It runs inside the dialog, and quitting herdr
-  mid-move stops it. Each step is short, and the journal records what happened.
+- **Keep the dialog open** until the move finishes. It runs inside the dialog. Closing it mid-move
+  rolls back instead of finishing (see Rollback).
 - **Split sizes** aren't carried over. Panes come back in order in the same tabs, and herdr lays
   them out.
 - **Same session in two places.** roam renames the source transcript after a move. When both

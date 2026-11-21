@@ -16,13 +16,17 @@
 //
 // Anything that fails after "pause" is rolled back: what started on the
 // target is stopped, the files written there are taken back, and the agents
-// resume where they were.
+// resume where they were. The journal is written at every step with what a
+// rollback needs, so a move cut off outright (the dialog closed, Herdr quit)
+// can still be rolled back: by the dialog as it closes, or from its banner
+// the next time it opens.
 
-import { spaces, panes, machines, run, hc, appHome, readTextFile, setShared, shared } from "herdr";
+import { spaces, panes, machines, run, hc, exec, appHome, readTextFile, setShared } from "herdr";
 import * as fs from "fs/promises";
-import { describe, sh, hcj, onArgs, sleep, isShell, inShell, shellWithNote, hex } from "./machine.js";
+import { describe, sh, hcj, onArgs, sleep, isShell, inShell, shellWithNote, hex, why } from "./machine.js";
 import { compile, planRules, homeOf } from "./paths.js";
 import { pull, push, unpush, dropBackups, wipe } from "./transport.js";
+import { PERL_REWRITE, rulesText, manifestText } from "./rewrite-perl.js";
 import { compare, exists, sizeKb, SKIP } from "./projects.js";
 import * as claude from "./claude.js";
 import * as agy from "./agy.js";
@@ -116,8 +120,6 @@ export async function plan(spaceId, target) {
     p.blockers.push("The space is already there.");
     return p;
   }
-  const busy = shared("roam.moving");
-  if (busy && busy.space === space.id) p.blockers.push("This space is moving already.");
   if (p.settings.invalid) p.warnings.push("roam.json isn't valid JSON, so roam uses its defaults.");
 
   const [src, dst] = await Promise.all([describe(srcName), describe(dstName)]);
@@ -227,7 +229,36 @@ export async function plan(spaceId, target) {
   const freeKb = Number((await sh(dstName, 'df -Pk "$HOME" | awk \'NR==2 { print $4 }\'').catch(() => "0")).trim()) || 0;
   const needKb = p.bytes / 1024 + p.projects.reduce((n, x) => n + (x.state === "missing" ? x.kb ?? 0 : 0), 0);
   if (freeKb && freeKb < needKb * 2 + 200 * 1024) p.blockers.push(`${dst.label} is nearly out of disk space (${fmtBytes(freeKb * 1024)} free).`);
+  if (!(await perl()) && p.bytes > 4 * 1048576)
+    p.warnings.push(`perl isn't on this computer, so roam rewrites ${fmtBytes(p.bytes)} of sessions itself. Herdr may stop responding for a while during that step.`);
   return p;
+}
+
+let perlHere = null;
+/** Whether this computer has perl (macOS and common Linux distributions ship it). */
+async function perl() {
+  if (perlHere === null) perlHere = await exec("perl", ["-e", "1"]).then((r) => r.code === 0, () => false);
+  return perlHere;
+}
+
+/**
+ * Rewrites (or copies) staged files: with perl in its own process when there
+ * is one, else in the mod, which blocks Herdr while it runs. Returns how many
+ * paths changed.
+ */
+async function rewriteFiles(items, rw, stage) {
+  if (await perl()) {
+    await fs.writeFile(`${stage}/rules.tsv`, rulesText(rw.entries));
+    await fs.writeFile(`${stage}/manifest.tsv`, manifestText(items));
+    const r = await exec("perl", ["-e", PERL_REWRITE, `${stage}/rules.tsv`, `${stage}/manifest.tsv`], { timeout: 600000 });
+    if (r.code !== 0) throw new Error(why(r, "perl couldn't rewrite the session files"));
+    return Number(r.stdout.trim()) || 0;
+  }
+  for (const x of items) {
+    await fs.mkdir(dirOf(x.out), { recursive: true });
+    await fs.writeFile(x.out, x.rewrite ? rw.file(x.path, await fs.readFile(x.from, "utf8")) : await fs.readFile(x.from));
+  }
+  return rw.changes;
 }
 
 /** Waits until agent `x` isn't mid-turn; reports what it waits for. */
@@ -276,12 +307,17 @@ export async function move(p, ui) {
   const say = (m) => log.push(`${new Date().toISOString()}  ${m}`);
   let current = "check";
   let pausedAt = null;
+  // What a rollback needs, kept current and in the journal at every step.
+  const live = { tx: p.tx, phase: "check", src: p.src.name, dst: p.dst.name, agents: [], started: [], wrote: [], done: false };
+  ui.track?.(live);
+  const save = () => journal(stage, p, log, { running: true, phase: current }, live).catch(() => null);
   const step = (key, state, detail = "") => {
     current = key;
+    live.phase = key;
     say(`${key} ${state} ${detail}`);
     ui.step(key, state, detail);
   };
-  setShared("roam.moving", { space: p.space.id, tx: p.tx });
+  setShared("roam.moving", null); // older versions kept a lock here
 
   try {
     step("check", "run");
@@ -291,6 +327,9 @@ export async function move(p, ui) {
     step("check", "done", `${p.dst.label} is ready`);
 
     step("finish", "run");
+    // Let the person's sync catch up while agents still work: once they
+    // pause, only their last turn's changes are left to wait for.
+    for (const pr of p.projects) await matchFolder(p, pr, stage, (d) => step("finish", "run", d), { copy: false, cancelled: ui.cancelled });
     for (const x of agents) await settle(x, (d) => step("finish", "run", d), ui.cancelled);
     step("finish", agents.length ? "done" : "skip", agents.length ? `${agents.length === 1 ? "the agent is" : `${agents.length} agents are`} idle` : "no agents here");
 
@@ -299,8 +338,21 @@ export async function move(p, ui) {
     for (const x of agents) {
       await settle(x, (d) => step("pause", "run", d), () => false);
       step("pause", "run", `stopping ${x.address}…`);
-      await adapterById(x.adapter).stop(p.src, x.t, x.session);
+      const a = adapterById(x.adapter);
+      live.agents.push({
+        address: x.address,
+        id: x.session.id,
+        line: a.resumeLine(x.session),
+        argv: inShell(p.src.shell, a.resumeArgv(x.session, compile([]))),
+        cwd: x.cwd,
+        space: x.t?.labels?.["herdr.space"] ?? null,
+        tab: x.t?.labels?.["herdr.tab"] ?? null,
+      });
+      await save(); // before it stops: a cut-off move must know to bring it back
+      await a.stop(p.src, x.t, x.session);
+      live.agents[live.agents.length - 1].stopped = true;
       did.stopped.push(x);
+      await save();
     }
     step("pause", agents.length ? "done" : "skip", agents.length ? "transcripts are complete" : "");
 
@@ -317,21 +369,25 @@ export async function move(p, ui) {
       x.dests = a.destinations(x.session, rw, p.dst, x.dstCwd);
       all.push(...x.dests);
     }
+    let changes = 0;
     if (all.length) {
+      bytes = all.reduce((n, d) => n + d.size, 0);
+      step("sessions", "run", `copying ${all.length} files (${fmtBytes(bytes)})…`);
       await pull(p.src.name, all.map((d) => d.path), `${stage}/src`);
-      for (const d of all) {
-        const from = `${stage}/src${d.path}`;
-        const out = `${stage}/out/${d.mode}${d.to}`;
-        await fs.mkdir(dirOf(out), { recursive: true });
-        const body = d.rewrite ? rw.file(d.path, await fs.readFile(from, "utf8")) : await fs.readFile(from);
-        await fs.writeFile(out, body);
-        bytes += d.size;
-      }
+      step("sessions", "run", `rewriting paths in ${fmtBytes(bytes)}…`);
+      changes = await rewriteFiles(
+        all.map((d) => ({ from: `${stage}/src${d.path}`, out: `${stage}/out/${d.mode}${d.to}`, rewrite: d.rewrite, path: d.path })),
+        rw,
+        stage,
+      );
+      step("sessions", "run", `sending them to ${p.dst.label}…`);
       const res = await push(p.dst.name, `${stage}/out`, p.tx);
       did.wrote = res.wrote;
+      live.wrote = res.wrote;
+      await save();
       if (res.kept.length) say(`kept the target's own copy of ${res.kept.join(", ")}`);
     }
-    step("sessions", all.length ? "done" : "skip", all.length ? `${all.length} files · ${fmtBytes(bytes)} · ${rw.changes} paths rewritten` : "no sessions");
+    step("sessions", all.length ? "done" : "skip", all.length ? `${all.length} files · ${fmtBytes(bytes)} · ${changes} paths rewritten` : "no sessions");
 
     step("start", "run");
     const sp = "sp" + hex(32);
@@ -346,6 +402,8 @@ export async function move(p, ui) {
         const r = await hcj(args);
         x.dstAddress = r.address;
         did.started.push(r.address);
+        live.started.push(r.address);
+        await save();
         step("start", "run", `${x.address} → ${r.address}`);
       }
     }
@@ -367,9 +425,12 @@ export async function move(p, ui) {
     // Agents run there now: the target's backups were only for rollback.
     await dropBackups(p.dst.name, did.wrote, p.tx);
     const result = { ok: true, total: Date.now() - t0, downtime, space: newSpace };
-    await journal(stage, p, log, result);
+    live.done = true;
+    await journal(stage, p, log, result, live);
     await wipe(`${stage}/src`);
     await wipe(`${stage}/out`);
+    await fs.unlink(`${stage}/rules.tsv`).catch(() => null);
+    await fs.unlink(`${stage}/manifest.tsv`).catch(() => null);
     safeRun("space.select", { id: newSpace });
     step("retire", "done", "the old space is closed");
     // Closing the old space can close this dialog with it, so everything
@@ -391,15 +452,16 @@ export async function move(p, ui) {
       for (const x of did.stopped) await resumeHere(p, x).catch((err) => say(`resume ${x.address}: ${err.message}`));
     }
     for (const x of p.panes) await hc(["label", x.address, "roam.moving="]).catch(() => null);
-    await journal(stage, p, log, { ok: false, error: e.message, rolledBack }).catch(() => null);
+    live.done = true;
+    await journal(stage, p, log, { ok: false, error: e.message, rolledBack }, live).catch(() => null);
     // Session copies can hold secrets: keep only the journal.
     await wipe(`${stage}/src`);
     await wipe(`${stage}/out`);
     await wipe(`${stage}/project`);
     await wipe(`${stage}/projout`);
+    await fs.unlink(`${stage}/rules.tsv`).catch(() => null);
+    await fs.unlink(`${stage}/manifest.tsv`).catch(() => null);
     return { ok: false, cancelled, error: e.message, rolledBack, total: Date.now() - t0, journal: `${stage}/journal.json` };
-  } finally {
-    setShared("roam.moving", null);
   }
 }
 
@@ -411,16 +473,22 @@ function safeRun(name, args) {
   }
 }
 
-/** Makes a project folder match on the target: waits for the person's sync, or copies a missing one. */
-async function matchFolder(p, pr, stage, report) {
+/**
+ * Makes a project folder match on the target: waits for the person's sync,
+ * or copies a missing one. With `copy: false` (before agents pause) it only
+ * waits, and a missing folder is left for after the pause.
+ */
+async function matchFolder(p, pr, stage, report, { copy = true, cancelled = () => false } = {}) {
   if (pr.state === "home") return;
   const deadline = Date.now() + p.settings.syncWaitSeconds * 1000;
   const short = tilde(pr.dst, p.dst.home);
   let copied = false;
   for (;;) {
+    if (cancelled()) throw new Cancelled();
     const c = await compare(p.src.name, pr.src, p.dst.name, pr.dst).catch((e) => ({ state: "unknown", why: e.message }));
     if (c.state === "same") return report(`${short} matches`);
     if (c.state === "unknown") return report(`${short} is too big to compare`);
+    if (c.state === "missing" && !copy) return;
     if (c.state === "missing" && !copied) {
       if (!p.settings.copyMissingProjects) throw new Error(`${short} isn't on ${p.dst.label}.`);
       report(`copying ${tilde(pr.src, p.src.home)} to ${p.dst.label}…`);
@@ -462,8 +530,11 @@ async function resumeHere(p, x) {
   ]);
 }
 
-/** Writes what happened to ~/.config/herdr-app/.roam/<tx>/journal.json. */
-async function journal(stage, p, log, result) {
+/**
+ * Writes what happened to ~/.config/herdr-app/.roam/<tx>/journal.json. While
+ * a move runs, `result.running` is true and `recovery` says how to undo it.
+ */
+async function journal(stage, p, log, result, live) {
   await fs.mkdir(stage, { recursive: true });
   const body = {
     tx: p.tx,
@@ -474,7 +545,83 @@ async function journal(stage, p, log, result) {
     result,
     rules: p.rules,
     panes: p.panes.map((x) => ({ from: x.address, to: x.dstAddress ?? null, kind: x.kind, session: x.session?.id ?? null, cwd: x.cwd, dstCwd: x.dstCwd })),
+    recovery: live ? { src: live.src, dst: live.dst, phase: live.phase, agents: live.agents, started: live.started, wrote: live.wrote } : null,
     log,
   };
   await fs.writeFile(`${stage}/journal.json`, JSON.stringify(body, null, 2));
+}
+
+/**
+ * Moves that were cut off (the dialog closed, Herdr quit) before they
+ * finished or rolled back: their journals still say `running`.
+ */
+export async function interrupted() {
+  const root = `${appHome()}/.roam`;
+  const found = [];
+  const dirs = await fs.readdir(root).catch(() => []);
+  for (const d of dirs) {
+    const raw = await fs.readFile(`${root}/${d}/journal.json`, "utf8").catch(() => null);
+    if (!raw) continue;
+    try {
+      const j = JSON.parse(raw);
+      if (j.result?.running && j.recovery && (j.recovery.agents.length || j.recovery.started.length))
+        found.push({ tx: j.tx, path: `${root}/${d}/journal.json`, space: j.space, from: j.from, to: j.to, phase: j.recovery.phase, agents: j.recovery.agents.length, at: j.at });
+    } catch {
+      // not a journal
+    }
+  }
+  return found;
+}
+
+/** Whether terminal `addr` runs an agent right now (not a shell). */
+async function agentRunning(addr) {
+  const t = await hcj(["get", addr], { ok: true }).catch(() => null);
+  if (!t || t.state !== "live") return { live: false };
+  const fg = t.foreground?.argv?.[0];
+  return { live: true, shell: isShell(fg), t };
+}
+
+/**
+ * Undoes a cut-off move from its journal: stops what it started on the
+ * target, takes back the files it wrote there, and brings each paused agent
+ * back on the source. Safe to run twice: an agent already running is left alone.
+ */
+export async function recover(path) {
+  const j = JSON.parse(await fs.readFile(path, "utf8"));
+  const r = j.recovery;
+  if (!r) return { resumed: 0 };
+  for (const addr of r.started) await hc(["kill", addr]).catch(() => null);
+  for (const a of r.agents) await sh(r.dst, 'pkill -f -- "$1" 2>/dev/null; true', [a.id]).catch(() => null);
+  await unpush(r.dst, r.wrote, j.tx);
+  let resumed = 0;
+  for (const a of r.agents) {
+    const here = await agentRunning(a.address);
+    if (here.live && !here.shell) continue; // it never stopped, or it's back already
+    if (here.live) await hc(["send", a.address, a.line]).catch(() => null);
+    else
+      await hcj([
+        "run", ...onArgs(r.src), "--bg", "--keep", "--no-parent", "--cwd", a.cwd,
+        ...(a.space ? ["--label", `herdr.space=${a.space}`] : []), ...(a.tab ? ["--label", `herdr.tab=${a.tab}`] : []),
+        "--", ...a.argv,
+      ]).catch(() => null);
+    await hc(["label", a.address, "roam.moving="]).catch(() => null);
+    resumed++;
+  }
+  j.result = { ok: false, recovered: true, error: `cut off while ${r.phase}; rolled back afterwards` };
+  await fs.writeFile(path, JSON.stringify(j, null, 2));
+  await wipe(path.replace(/\/journal\.json$/, "/src"));
+  await wipe(path.replace(/\/journal\.json$/, "/out"));
+  return { resumed };
+}
+
+/**
+ * Last words of a dialog closing mid-move: it has no time to wait, so it
+ * starts the rollback and leaves. Once the old space is being closed, the
+ * move has happened and nothing is undone. The banner finishes the rest.
+ */
+export function abandon(live) {
+  if (!live || live.done || live.phase === "retire") return;
+  for (const addr of live.started) hc(["kill", addr]).catch(() => null);
+  // Only agents that really stopped: typing this into a running one would send it as a message.
+  for (const a of live.agents) if (a.stopped) hc(["send", a.address, a.line]).catch(() => null);
 }

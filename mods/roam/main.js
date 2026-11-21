@@ -8,7 +8,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { theme, props, closeOverlay, focused, spaces, machines, nextCommand, notify, panes } from "herdr";
-import { plan, move, STEPS, fmtBytes, fmtSecs } from "./engine.js";
+import { plan, move, interrupted, recover, abandon, STEPS, fmtBytes, fmtSecs } from "./engine.js";
 import { samplePlan, sampleTargets, sampleSteps, sampleResult } from "./preview.js";
 import { sleep } from "./machine.js";
 
@@ -83,6 +83,14 @@ export default class Roam extends View {
     this.result = null;
     this.cancel = false;
     this.copied = false;
+    this.live = null;
+    // Moves cut off earlier (the dialog closed, Herdr quit): offer to undo them.
+    this.stale = [];
+    this.recovering = null;
+    cx.spawn(async (cx) => {
+      this.stale = await interrupted().catch(() => []);
+      cx.notify();
+    });
     cx.timer.every(1000, (cx) => {
       if (this.view === "moving") cx.notify();
     });
@@ -161,6 +169,7 @@ export default class Roam extends View {
         cancelled: () => this.cancel,
         // Said before the old space closes, which may close this dialog too.
         finished: (r) => finish(r, cx),
+        track: (live) => (this.live = live),
       });
       finish(res, cx);
     });
@@ -168,6 +177,55 @@ export default class Roam extends View {
 
   dismiss() {
     closeOverlay(props()?.overlay);
+  }
+
+  // Closed mid-move (⌘⇧M again, Herdr quitting): start the rollback on the way out.
+  async close(_cx) {
+    if (this.view === "moving" && this.live && !this.isPreview) abandon(this.live);
+  }
+
+  recoverStale(item, cx) {
+    if (this.recovering) return;
+    this.recovering = item.tx;
+    cx.spawn(async (cx) => {
+      const r = await recover(item.path).catch((e) => ({ error: e.message }));
+      this.stale = this.stale.filter((s) => s.tx !== item.tx);
+      this.recovering = null;
+      notify(
+        r.error
+          ? { title: "roam couldn't undo the cut-off move", body: r.error, level: "error" }
+          : { title: `${item.space}: back on ${item.from}`, body: r.resumed ? `${r.resumed === 1 ? "Its agent runs" : `${r.resumed} agents run`} where it was again.` : "Nothing needed bringing back.", level: "success" },
+      );
+      cx.notify();
+    });
+  }
+
+  staleBanner(t) {
+    return v_flex()
+      .pt(12)
+      .gap(6)
+      .children(
+        this.stale.map((s) =>
+          h_flex()
+            .gap(10)
+            .px(10)
+            .py(8)
+            .items_center()
+            .rounded(8)
+            .bg(t.blocked + "14")
+            .border_1()
+            .border_color(t.blocked + "40")
+            .child(
+              v_flex()
+                .flex_1()
+                .min_w(0)
+                .gap(2)
+                .child(div().text_size(12.5).font_medium().child(`A move of ${s.space} to ${s.to} was cut off`))
+                .child(div().text_size(11.8).text_color(t.muted).child(`It stopped during "${s.phase}". ${s.agents ? `${s.agents === 1 ? "Its agent" : `${s.agents} agents`} may still be paused on ${s.from}.` : ""}`)),
+            )
+            .child(button(t, `roam-recover-${s.tx}`, this.recovering === s.tx ? "Bringing back…" : "Bring them back", (cx) => this.recoverStale(s, cx), { primary: true, disabled: Boolean(this.recovering) })),
+        ),
+      );
   }
 
   escape(cx) {
@@ -225,6 +283,7 @@ export default class Roam extends View {
 
   command(c, cx) {
     if (c.startsWith("preview-")) return this.preview(c.slice("preview-".length), cx);
+    if (c === "recover" && this.view === "pick" && this.stale.length) return this.recoverStale(this.stale[0], cx);
     const n = this.targets().length || 1;
     if (c === "next" && this.view === "pick") this.sel = (this.sel + 1) % n;
     else if (c === "prev" && this.view === "pick") this.sel = (this.sel - 1 + n) % n;
@@ -241,6 +300,7 @@ export default class Roam extends View {
     else if (k === "down" || k === "j") this.command("next", cx);
     else if (k === "up" || k === "k") this.command("prev", cx);
     else if (k === "enter") this.command("go", cx);
+    else if (k === "r") this.command("recover", cx);
     else return;
     cx.stop_propagation();
     cx.notify();
@@ -308,6 +368,7 @@ export default class Roam extends View {
     if (!list.length)
       return div().pt(14).text_size(12.5).line_height("19px").text_color(t.dim).child("No other machine is connected. Add one with Add machine in the sidebar (or `hc machine add`), then come back.");
     return v_flex()
+      .when(this.stale.length > 0 && !this.isPreview, (el) => el.child(this.staleBanner(t)))
       .child(section(t, "Move it to"))
       .children(
         list.map((m, i) => {

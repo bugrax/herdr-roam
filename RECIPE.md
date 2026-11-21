@@ -81,8 +81,11 @@ Text uses the theme colors (`foreground`, `muted`, `dim`).
 
 ## Watch out
 
-- The move runs inside the dialog. Closing the dialog or quitting Herdr mid-move stops it, so
-  `mod.json` makes the dialog modal.
+- The move runs inside the dialog. Closing it mid-move stops the move, so `mod.json` makes the
+  dialog modal, `close()` starts a rollback, and the journal (written at every step) lets the next
+  dialog offer **Bring them back**.
+- Never rewrite large files in the mod: QuickJS runs on Herdr's thread. `rewrite-perl.js` does it
+  in a perl process.
 - `hc run --json` must put `--json` before `--`, or it becomes the agent's argument.
 - `hc send` wraps text for agents in `<hc>` tags, so slash commands don't work through it. Pause
   Claude with Ctrl+C instead. Text sent to a plain shell arrives as is, which rollback uses.
