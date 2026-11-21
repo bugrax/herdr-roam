@@ -56,7 +56,7 @@ Antigravity CLI for **3.9 seconds**.
 - **The same layout.** Tabs keep their names and order, and the space keeps its name. Shells reopen in the same folder. A dev server's pane opens a shell that shows the command it was running.
 - **A dry run first.** The review lists every pane, folder and path rule, warns about anything unusual, and blocks moves that can't work (the target can't start terminals, Claude isn't installed there, the disk is full).
 - **Rollback.** If anything fails after agents pause, roam stops what it started on the target, puts back the files it wrote there, and resumes every agent where it was. That holds even when the dialog is closed or Herdr quits mid-move: it rolls back on the way out, and the next time it opens it offers to finish the job.
-- **Zero install.** Only the mod. Nothing on any machine beyond herdr-core, `sh` and `tar`.
+- **Zero install.** Only the mod. Nothing on any machine beyond herdr-core, `sh`, `tar`, `dd` and `cksum`.
 
 <p align="center">
   <img src="docs/assets/done.png" width="49%" alt="A finished move: all eight steps checked, 'checkout-api is on build-box. Agents were paused for 7.4 s'">

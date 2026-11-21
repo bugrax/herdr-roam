@@ -1,0 +1,32 @@
+#!/bin/sh
+# A stand-in for herdr-core's hc in tests. `hc exec [--on M] [--timeout N]
+# [-i] ARGV...` runs ARGV right here, with herdr-core's limits: at most 8 MB
+# piped in, and only the first 8 MB of what it writes comes back.
+[ "$1" = exec ] || { echo "fake hc: only exec" >&2; exit 2; }
+shift
+stdin=no
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --on|--timeout|--cwd) shift 2 ;;
+    -i|--stdin) stdin=yes; shift ;;
+    --json) shift ;;
+    *) break ;;
+  esac
+done
+LIMIT=8388608
+t=$(mktemp -d "${TMPDIR:-/tmp}/fakehc.XXXXXX")
+trap 'rm -rf "$t"' EXIT
+if [ $stdin = yes ]; then
+  cat > "$t/in"
+  n=$(wc -c < "$t/in")
+  if [ $((n + 0)) -gt $LIMIT ]; then
+    echo '{"error":{"kind":"invalid_params","message":"at most 8 MB piped in"}}' >&2
+    exit 1
+  fi
+  "$@" < "$t/in" > "$t/out"
+else
+  "$@" < /dev/null > "$t/out"
+fi
+code=$?
+head -c $LIMIT "$t/out"
+exit $code

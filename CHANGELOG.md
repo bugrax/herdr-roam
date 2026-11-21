@@ -22,3 +22,5 @@ First version.
 - A move cut off by the dialog closing or Herdr quitting rolls back. The dialog starts the rollback as it
   closes, and the next time it opens it offers to finish it (**Bring them back**).
 - Project folders are synced before agents pause, not after, so the pause stays short.
+- Sessions and folders bigger than 8 MB move in 6 MB pieces, checked with `cksum`. herdr-core refuses
+  more than 8 MB piped into one `hc exec`, which stopped a 27 MB session from moving.

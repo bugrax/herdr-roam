@@ -34,7 +34,7 @@ herdr-app do roam.preview-review   # or pick, planning, play, done, failed
 | `mods/roam/main.js` | The dialog | yes |
 | `mods/roam/engine.js` | Plan, move, rollback | yes |
 | `mods/roam/claude.js` | Claude Code adapter | yes |
-| `mods/roam/transport.js` | `tar` over `hc exec` | yes |
+| `mods/roam/transport.js` | `tar` over `hc exec`, in 6 MB pieces | yes, tested with a stub herdr and `hc` |
 | `mods/roam/projects.js` | Folder fingerprints | yes |
 | `mods/roam/machine.js` | `exec`, `hc` and quoting helpers | yes |
 | `mods/roam/paths.js` | Path rules | **no**, unit-tested |

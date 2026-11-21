@@ -42,6 +42,12 @@ therefore travel through the computer running the herdr window:
 source ──(hc exec: tar -c)──▶ this computer ──(hc exec -i: tar -x)──▶ target
 ```
 
+- herdr-core carries at most 8 MB into or out of one `hc exec`. A session with screenshots or PDFs
+  in it is past that even compressed, and so are most project folders. So an archive going to or
+  coming from another machine is written to a file, moved 6 MB at a time (`dd` there, `hc exec -i`
+  appending here), checked with `cksum` on arrival, and only then unpacked. The review shows
+  "sending them to … (2 of 3)" as the pieces go. `test/transport.test.mjs` runs `pull` and `push`
+  against a stand-in `hc` that enforces the same limits.
 - Paths are rewritten by `perl` in its own process, streaming each file line by line, with the rules `paths.js` compiles. A 10 MB transcript takes a few hundredths of a second. Mods run in QuickJS on Herdr's own thread, and rewriting a session that size there froze the window long enough to look broken. `test/rewrite-perl.test.mjs` checks that perl and `paths.js` produce byte-identical output.
 - On macOS, `tar` runs with `--no-xattrs --no-mac-metadata`, so Linux `tar` gets no extended
   headers it doesn't understand.

@@ -373,7 +373,8 @@ export async function move(p, ui) {
     if (all.length) {
       bytes = all.reduce((n, d) => n + d.size, 0);
       step("sessions", "run", `copying ${all.length} files (${fmtBytes(bytes)})…`);
-      await pull(p.src.name, all.map((d) => d.path), `${stage}/src`);
+      const part = (what) => (i, n) => n > 1 && i < n && step("sessions", "run", `${what} (${i + 1} of ${n})…`);
+      await pull(p.src.name, all.map((d) => d.path), `${stage}/src`, [], { progress: part(`copying ${all.length} files (${fmtBytes(bytes)})`) });
       step("sessions", "run", `rewriting paths in ${fmtBytes(bytes)}…`);
       changes = await rewriteFiles(
         all.map((d) => ({ from: `${stage}/src${d.path}`, out: `${stage}/out/${d.mode}${d.to}`, rewrite: d.rewrite, path: d.path })),
@@ -381,7 +382,7 @@ export async function move(p, ui) {
         stage,
       );
       step("sessions", "run", `sending them to ${p.dst.label}…`);
-      const res = await push(p.dst.name, `${stage}/out`, p.tx);
+      const res = await push(p.dst.name, `${stage}/out`, p.tx, { progress: part(`sending them to ${p.dst.label}`) });
       did.wrote = res.wrote;
       live.wrote = res.wrote;
       await save();
@@ -492,7 +493,7 @@ async function matchFolder(p, pr, stage, report, { copy = true, cancelled = () =
     if (c.state === "missing" && !copied) {
       if (!p.settings.copyMissingProjects) throw new Error(`${short} isn't on ${p.dst.label}.`);
       report(`copying ${tilde(pr.src, p.src.home)} to ${p.dst.label}…`);
-      await copyFolder(p, pr, stage);
+      await copyFolder(p, pr, stage, (i, n) => n > 1 && i < n && report(`copying ${tilde(pr.src, p.src.home)} to ${p.dst.label} (${i + 1} of ${n})…`));
       copied = true;
       continue;
     }
@@ -503,12 +504,12 @@ async function matchFolder(p, pr, stage, report, { copy = true, cancelled = () =
 }
 
 /** Copies a project folder that isn't on the target, without dependency and build folders. */
-async function copyFolder(p, pr, stage) {
+async function copyFolder(p, pr, stage, progress) {
   const raw = `${stage}/project`;
-  await pull(p.src.name, [pr.src], raw, SKIP);
+  await pull(p.src.name, [pr.src], raw, SKIP, { progress });
   // Same contents, under the target path.
   await sh(null, 'mkdir -p "$2" && mkdir -p "$(dirname "$2$3")" && mv "$1$4" "$2$3"', [raw, `${stage}/projout/put`, pr.dst, pr.src]);
-  await push(p.dst.name, `${stage}/projout`, p.tx, { mode: "keep" });
+  await push(p.dst.name, `${stage}/projout`, p.tx, { mode: "keep", progress });
   await wipe(raw);
   await wipe(`${stage}/projout`);
 }
