@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="docs/assets/logo.svg" width="96" alt="roam logo">
+<img src="docs/assets/banner.jpg" width="100%" alt="roam: move live coding agents between machines">
 
-# roam
+<h1>roam</h1>
 
 **Move a live [herdr](https://herdr.dev) space, agents and all, to another machine.**
 
@@ -94,6 +94,11 @@ connected to it (`hc machine add`) and have Claude Code installed.
 3. Read the review: what moves, the folders and whether they're in sync, and the path rules.
 4. Press **Move**. Keep the dialog open until it says the space is on the other machine,
    usually about ten seconds.
+
+<p align="center">
+  <img src="docs/assets/pick.png" width="49%" alt="Picking a machine: build-box, studio-mac, and gpu-rig, which is offline">
+  <img src="docs/assets/review.png" width="49%" alt="The review: two Claude Code sessions, a shell and a dev server, the folder in sync, and the path rules /Users/ana to /home/ana">
+</p>
 
 Moving it back works the same way, from the other machine's group in the sidebar.
 
