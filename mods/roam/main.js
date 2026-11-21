@@ -344,7 +344,7 @@ export default class Roam extends View {
   paneRow(t, x, common) {
     const p = this.plan;
     const what =
-      x.kind === "agent" ? (x.session ? `Claude Code · ${x.session.id.slice(0, 8)} · ${fmtBytes(x.session.bytes)}` : "agent")
+      x.kind === "agent" ? (x.session ? `${x.agentName ?? "agent"} · ${x.session.id.slice(0, 8)} · ${fmtBytes(x.session.bytes)}` : "agent")
       : x.kind === "shell" ? "shell"
       : "program";
     return v_flex()

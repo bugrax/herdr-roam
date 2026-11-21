@@ -66,6 +66,8 @@ Text uses the theme colors (`foreground`, `muted`, `dim`).
   `herdr.space`/`herdr.tab` labels into a new space.
 - `claude.js`: the Claude Code adapter. Sessions come from `~/.claude/sessions/<pid>.json`. It pauses
   with Ctrl+C, resumes with `claude --resume`, and answers the folder-trust prompt.
+- `agy.js`: the Antigravity CLI adapter. The conversation comes from the process's open files and
+  moves unchanged. It resumes with `agy --conversation`.
 - `paths.js`: longest-prefix path rules applied in one pass inside JSON. `claude-args.js` rebuilds
   the resume command line.
 - `transport.js`: `tar` over `hc exec`, through this computer, with atomic `0600` writes and

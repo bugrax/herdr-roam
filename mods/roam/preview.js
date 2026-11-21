@@ -16,6 +16,7 @@ export function samplePlan(claudeProgram) {
     title,
     kind,
     program: kind === "agent" ? program : null,
+    agentName: kind === "agent" ? "Claude Code" : null,
     cwd: HOME + REPO,
     dstCwd: THERE + REPO,
     argv: [],

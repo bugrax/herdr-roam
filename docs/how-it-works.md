@@ -72,6 +72,21 @@ so `claude -r` lists it there. `claude --resume <id>` would also find it in any 
 roam relies on that for cwds whose folder name exceeds 200 characters, which Claude Code shortens
 with a hash.
 
+## Which files belong to an Antigravity CLI conversation
+
+| Path under `~/.gemini/antigravity-cli` | What | Rewritten |
+|---|---|---|
+| `conversations/<id>.db` | The conversation, SQLite (with a WAL while agy runs) | no |
+| `brain/<id>/` | Its working files: plans, scratch files, uploads | text files only |
+
+agy doesn't keep a pid file. The conversation a running agy has open is found among its open files
+(`/proc/<pid>/fd` on Linux, `lsof` on macOS). agy checkpoints its WAL when it exits, so the
+database is copied only after the pause. Conversations aren't stored per folder, and
+`agy --conversation <id>` finds one wherever it starts. Inside the database, paths are protobuf
+fields whose length is part of the data, and rewriting them without the schema could corrupt it.
+roam moves the conversation as it is, and the review warns when the project's path differs on the
+target. agy's `antigravity-oauth-token` never moves.
+
 ## Path rules
 
 A session mentions absolute paths everywhere: `cwd` on every line, tool inputs and outputs, the
@@ -123,6 +138,8 @@ MacBook and a Linux box over Tailscale:
 |---|---|---|---|---|
 | Linux → macOS | 14 · 1.6 MB | 100 | 6.5 s | 6.9 s |
 | macOS → Linux | 13 · 1.6 MB | 100 | 8.5 s | 10.4 s |
+| macOS → macOS, another username (Claude Code) | 14 · 1.6 MB | 467 | 7.9 s | 8.4 s |
+| Linux → macOS (Antigravity CLI) | 8 · 495 KB | n/a | 3.9 s | 4.4 s |
 
 Most of the pause is Claude exiting (about 1 to 2 s) and starting again on the target (about 3 s).
 

@@ -6,8 +6,8 @@
 
 **Move a live [herdr](https://herdr.dev) space, agents and all, to another machine.**
 
-Your Claude Code sessions finish their turn, pause for a few seconds, and continue on the
-other machine with their whole history. Live migration for coding agents.
+Your coding agents (Claude Code and Antigravity CLI) finish their turn, pause for a few seconds,
+and continue on the other machine with their whole history. Live migration for coding agents.
 
 [![CI](https://github.com/bugrax/herdr-roam/actions/workflows/ci.yml/badge.svg)](https://github.com/bugrax/herdr-roam/actions/workflows/ci.yml)
 [![herdr mod](https://img.shields.io/badge/herdr-mod-7aa2f7)](https://herdr.dev/mods)
@@ -43,13 +43,14 @@ panes and folders come along, and anything that fails rolls back.
 | Redirect traffic | The space appears under the target machine and the old one closes. |
 | Roll back on failure | Agents resume where they were. |
 
-In real moves between a MacBook and a Linux box, agents were paused for **6.5 to 8.5 seconds**.
+In real moves between Macs and a Linux box, Claude Code was paused for **6.5 to 8.5 seconds** and
+Antigravity CLI for **3.9 seconds**.
 
 ## What you get
 
 - **One dialog.** Press <kbd>⌘</kbd><kbd>⇧</kbd><kbd>M</kbd>, pick a machine, read what will move, press **Move**.
 - **Nothing cut off.** Agents pause only between turns. Mid-turn agents finish first, and agents waiting on a prompt wait for you.
-- **The whole session.** Transcripts, subagent transcripts, project memory, `/rewind` history and todo lists. After the move, `/rewind` restores files byte for byte on the new machine.
+- **The whole session.** For Claude Code: transcripts, subagent transcripts, project memory, `/rewind` history and todo lists. After the move, `/rewind` restores files byte for byte on the new machine. For Antigravity CLI (`agy`): the conversation and its working files.
 - **Any machine to any machine.** macOS and Linux, different usernames, different home folders, sessions that already moved once.
 - **Paths that make sense there.** `/Users/ana/code/app` becomes `/home/ana/code/app` everywhere in the session, including Claude Code's own folder names.
 - **The same layout.** Tabs keep their names and order, and the space keeps its name. Shells reopen in the same folder. A dev server's pane opens a shell that shows the command it was running.
@@ -101,13 +102,14 @@ Moving it back works the same way, from the other machine's group in the sidebar
 | | |
 |---|---|
 | **Claude Code sessions** | Transcript, subagents, large tool results, project memory, `/rewind` history and todos. Resumed by id with their original flags (model, permission mode, allowed tools). Path flags are mapped. |
+| **Antigravity CLI conversations** | The conversation database and its `brain` folder, resumed with `agy --conversation <id>` and its original flags. agy stores paths in binary form, so roam doesn't rewrite them. The review warns when the project's path differs on the target. |
 | **Shells** | Reopened in the same folder on the target. |
 | **Other programs** (dev servers, watchers) | Stopped with the old space. The new pane opens a shell that shows the command, ready for you to run again. |
 | **Project files** | Not copied when your sync already has them. roam compares the folders on both machines and waits (90 s by default) for your sync to catch up. A folder missing on the target is copied without `node_modules`, `.venv` and other rebuildable folders. |
 | **Not carried over** | Background tasks an agent started, the in-memory state of MCP servers, and "allow for this session" approvals. Like after any restart, they start fresh. The first turn after a move rebuilds the prompt cache once. |
 
-roam never copies credentials. The target must be signed in to Claude Code, and the review warns
-when it's signed in to a different account than the session's.
+roam never copies credentials. The target must be signed in to the agent, and for Claude Code the
+review warns when it's signed in to a different account than the session's.
 
 ## Settings
 
@@ -133,6 +135,7 @@ Optional, in `~/.config/herdr-app/roam.json`:
 
 - [herdr](https://herdr.dev) with herdr-core 0.1.20 or newer, and the target added as a machine.
 - Claude Code 2.1 or newer on both machines. Tested with 2.1.323 to 2.1.330.
+- For Antigravity CLI sessions: `agy` 1.5 or newer on both machines. Tested with 1.5.6 and 1.5.14.
 - macOS or Linux on each machine.
 
 ## How it works
@@ -160,8 +163,9 @@ sequenceDiagram
 
 ## Other agents
 
-roam talks to agents through adapters. [`mods/roam/claude.js`](mods/roam/claude.js) is the first one.
-Codex CLI, Gemini CLI and opencode store sessions differently but resume by id the same way.
+roam talks to agents through adapters: [`claude.js`](mods/roam/claude.js) for Claude Code and
+[`agy.js`](mods/roam/agy.js) for Antigravity CLI. Codex CLI, Gemini CLI and opencode store
+sessions differently but resume by id the same way.
 [docs/adapters.md](docs/adapters.md) explains what an adapter does, and pull requests are welcome.
 
 ## Contributing

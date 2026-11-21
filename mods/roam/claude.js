@@ -11,7 +11,7 @@
 //   sessions/<pid>.json                  which session a running Claude has open
 
 import { readTextFile, hc } from "herdr";
-import { sh, hcj, sleep, q, isShell } from "./machine.js";
+import { sh, hcj, sleep, q, isShell, interruptUntilGone } from "./machine.js";
 import { resumeArgv as rebuild, sessionFromArgv, isClaude } from "./claude-args.js";
 import { claudeProjectDir, homesIn } from "./paths.js";
 
@@ -127,18 +127,14 @@ export async function installed(m) {
  * (the first may only clear a half-typed prompt), then SIGTERM if it won't.
  */
 export async function stop(m, t, s) {
-  const alive = async () => (await sh(m.name, 'kill -0 "$1" 2>/dev/null && echo yes || echo no', [s.pid]).catch(() => "no")).trim() === "yes";
-  for (let i = 0; i < 3 && (await alive()); i++) {
-    await hc(["keys", t.address, "ctrl+c"]).catch(() => null);
-    await sleep(350);
-    await hc(["keys", t.address, "ctrl+c"]).catch(() => null);
-    for (let j = 0; j < 10 && (await alive()); j++) await sleep(300);
-  }
-  if (await alive()) {
-    await sh(m.name, 'kill -TERM "$1" 2>/dev/null; i=0; while kill -0 "$1" 2>/dev/null; do i=$((i+1)); [ $i -ge 50 ] && exit 1; sleep 0.2; done', [s.pid]).catch(() => {
-      throw new Error(`Claude (pid ${s.pid}) on ${m.label} didn't exit`);
-    });
-  }
+  await interruptUntilGone(m, t.address, s.pid, "Claude");
+}
+
+/** Warnings for the review, about this session on that target. */
+export function notes(s, { dst }) {
+  return dst.user === "root" && s.argv.includes("--dangerously-skip-permissions")
+    ? [`This session skips permissions, which Claude refuses as root on ${dst.label}.`]
+    : [];
 }
 
 /**

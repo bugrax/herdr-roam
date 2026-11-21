@@ -8,6 +8,8 @@ First version.
 - Claude Code adapter. Each session finishes its turn, exits cleanly, and is resumed by id on the
   target with its original flags. Transcripts, subagents, project memory, `/rewind` history and
   todos move with it.
+- Antigravity CLI (`agy`) adapter. Each conversation finishes its turn and exits, its database
+  and working files move as they are, and it resumes with `agy --conversation <id>`.
 - Path rules: longest prefix first, in one pass, inside JSON. They follow Claude Code's
   project-folder names and other homes a session mentions.
 - Project folders are compared on both machines. roam waits for your sync, or copies a folder that

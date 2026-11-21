@@ -25,9 +25,16 @@ import { compile, planRules, homeOf } from "./paths.js";
 import { pull, push, unpush, dropBackups, wipe } from "./transport.js";
 import { compare, exists, sizeKb, SKIP } from "./projects.js";
 import * as claude from "./claude.js";
+import * as agy from "./agy.js";
 
 /** Agents roam can move. Add an adapter here to support another one. */
-export const ADAPTERS = [claude];
+export const ADAPTERS = [claude, agy];
+
+// "1.1.3" is a release line behind "1.5.14"; "2.1.323" isn't behind "2.1.330".
+function behind(a, b) {
+  const [x, y] = [a, b].map((v) => String(v).split(".").map(Number));
+  return x[0] < y[0] || (x[0] === y[0] && (x[1] || 0) < (y[1] || 0));
+}
 const adapterById = (id) => ADAPTERS.find((a) => a.id === id);
 
 export const STEPS = [
@@ -143,6 +150,7 @@ export async function plan(spaceId, target) {
       kind: adapter ? "agent" : isShell(argv[0]) ? "shell" : "program",
       adapter: adapter?.id ?? null,
       t,
+      agentName: adapter?.name ?? null,
     };
     if (adapter) {
       try {
@@ -203,18 +211,18 @@ export async function plan(spaceId, target) {
     }
   }
 
-  // The agents themselves, on the target.
+  // The agents themselves, on the target: installed, recent enough, same account.
   const agents = p.panes.filter((x) => x.kind === "agent" && x.session);
-  if (agents.length) {
-    const [version, acct] = await Promise.all([claude.installed(dst), claude.account(dst)]);
-    if (!version) p.blockers.push(`Claude Code isn't on ${dst.label} (not on its login shell's PATH).`);
-    for (const x of agents) {
+  for (const aid of [...new Set(agents.map((x) => x.adapter))]) {
+    const a = adapterById(aid);
+    const [there, here, acct] = await Promise.all([a.installed(dst), a.installed(src), a.account ? a.account(dst) : null]);
+    if (!there) p.blockers.push(`${a.name} isn't on ${dst.label} (not on its login shell's PATH).`);
+    else if (here && behind(there, here)) p.warnings.push(`${a.name} on ${dst.label} is ${there}, older than ${here} here: it may not read this session. Update it there first.`);
+    for (const x of agents.filter((y) => y.adapter === aid)) {
       if (x.session.account && acct && x.session.account !== acct)
-        p.warnings.push(`${dst.label} is signed in to a different Claude account than ${x.address}'s session. It may not open there.`);
-      if (dst.user === "root" && x.argv.includes("--dangerously-skip-permissions"))
-        p.warnings.push(`${x.address} skips permissions, which Claude refuses as root on ${dst.label}.`);
+        p.warnings.push(`${dst.label} is signed in to a different ${a.name} account than ${x.address}'s session. It may not open there.`);
+      for (const n of a.notes?.(x.session, { src, dst, dstCwd: x.dstCwd }) ?? []) p.warnings.push(`${x.address}: ${n}`);
     }
-    p.claudeVersion = version;
   }
   const freeKb = Number((await sh(dstName, 'df -Pk "$HOME" | awk \'NR==2 { print $4 }\'').catch(() => "0")).trim()) || 0;
   const needKb = p.bytes / 1024 + p.projects.reduce((n, x) => n + (x.state === "missing" ? x.kb ?? 0 : 0), 0);
@@ -377,7 +385,8 @@ export async function move(p, ui) {
       rolledBack = true;
       say("rolling back");
       for (const addr of did.started) await hc(["kill", addr]).catch(() => null);
-      for (const x of did.stopped) await sh(p.dst.name, 'pkill -f "claude --resume $1" 2>/dev/null; true', [x.session.id]).catch(() => null);
+      // An agent that started there despite an error (the session id is unique).
+      for (const x of did.stopped) await sh(p.dst.name, 'pkill -f -- "$1" 2>/dev/null; true', [x.session.id]).catch(() => null);
       await unpush(p.dst.name, did.wrote, p.tx);
       for (const x of did.stopped) await resumeHere(p, x).catch((err) => say(`resume ${x.address}: ${err.message}`));
     }

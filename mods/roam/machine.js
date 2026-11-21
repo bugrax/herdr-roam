@@ -85,6 +85,25 @@ export function shellWithNote(shell, note) {
   return POSIX.has(base(shell)) ? [shell, "-lic", 'printf "\\033[2m%s\\033[0m\\n" "$1"; exec "$0" -li', shell, note] : null;
 }
 
+/**
+ * Ends an agent the way a person would: Ctrl+C until its process exits (the
+ * first may only clear a half-typed prompt), then SIGTERM if it won't.
+ */
+export async function interruptUntilGone(m, addr, pid, label) {
+  const alive = async () => (await sh(m.name, 'kill -0 "$1" 2>/dev/null && echo yes || echo no', [pid]).catch(() => "no")).trim() === "yes";
+  for (let i = 0; i < 3 && (await alive()); i++) {
+    await hc(["keys", addr, "ctrl+c"]).catch(() => null);
+    await sleep(350);
+    await hc(["keys", addr, "ctrl+c"]).catch(() => null);
+    for (let j = 0; j < 10 && (await alive()); j++) await sleep(300);
+  }
+  if (await alive()) {
+    await sh(m.name, 'kill -TERM "$1" 2>/dev/null; i=0; while kill -0 "$1" 2>/dev/null; do i=$((i+1)); [ $i -ge 50 ] && exit 1; sleep 0.2; done', [pid]).catch(() => {
+      throw new Error(`${label} (pid ${pid}) on ${m.label} didn't exit`);
+    });
+  }
+}
+
 /** A random hex id. */
 export function hex(n = 32) {
   let s = "";

@@ -1,8 +1,10 @@
 # Agent adapters
 
 roam knows how to move an agent through an adapter: one module that finds a running session,
-pauses it, lists its files, says where they go, and resumes it. [`claude.js`](../mods/roam/claude.js)
-is the reference. To support another agent, write a module with the same exports and add it to
+pauses it, lists its files, says where they go, and resumes it. There are two to learn from:
+[`claude.js`](../mods/roam/claude.js) handles a JSONL transcript keyed by folder, with every path
+rewritten. [`agy.js`](../mods/roam/agy.js) handles a SQLite conversation found through the
+process's open files and moved as it is. To support another agent, write a module with the same exports and add it to
 `ADAPTERS` in [`engine.js`](../mods/roam/engine.js).
 
 ## The interface
@@ -43,9 +45,11 @@ export async function ready(addr, { trust, report, timeout }) {}
 // Puts the source copy away so the session isn't resumed twice. Returns whether it did.
 export async function archive(m, s, dests, sameFile) {}
 
-// Optional, used by the review: the agent's version there, and the signed-in account.
+// Used by the review: the agent's version on a machine (null when it isn't there),
+// the signed-in account (optional), and warnings about this session on that target (optional).
 export async function installed(m) {}
 export async function account(m) {}
+export function notes(s, { src, dst, dstCwd }) {}
 ```
 
 `machine.js` has helpers every adapter needs: `sh(on, script, args)` runs a script on a machine
