@@ -13,7 +13,7 @@
 import { hc } from "herdr";
 import { sh, hcj, sleep, q, isShell, interruptUntilGone } from "./machine.js";
 import { agyResumeArgv, conversationFromArgv, isAgy } from "./agy-args.js";
-import { homesIn } from "./paths.js";
+import { homesIn, insideRoots } from "./paths.js";
 
 export const id = "antigravity";
 export const name = "Antigravity CLI";
@@ -37,12 +37,15 @@ true`;
 /** Every file of conversation `s` on machine `m`. */
 export async function files(m, s) {
   const r = root(m);
-  const out = await sh(m.name, LIST, [`${r}/conversations/${s.id}.db`, `${r}/conversations/${s.id}.db-wal`, `${r}/brain/${s.id}`], 120000);
+  const roots = [`${r}/conversations/${s.id}.db`, `${r}/conversations/${s.id}.db-wal`, `${r}/brain/${s.id}`];
+  const out = await sh(m.name, LIST, roots, 120000);
   const list = [];
   for (const line of out.split("\n")) {
     const tab = line.indexOf("\t");
     if (tab < 0) continue;
     const path = line.slice(tab + 1);
+    // Only the conversation's own files, whatever the file names say.
+    if (!insideRoots(path, roots)) continue;
     list.push({ path, size: Number(line.slice(0, tab)) || 0, kind: path.includes("/conversations/") ? "conversation" : "brain" });
   }
   return list;
@@ -56,7 +59,7 @@ export async function inspect(m, t) {
     : "";
   const cid = /conversations\/([0-9a-f-]{36})\.db/.exec(open)?.[1] ?? conversationFromArgv(t.foreground?.argv);
   if (!cid) throw new Error(`can't tell which conversation ${t.address} has open`);
-  const s = { agent: id, id: cid, pid, cwd: t.foreground?.cwd ?? t.cwd, argv: t.foreground?.argv ?? ["agy"] };
+  const s = { agent: id, id: cid, pid, cwd: t.foreground?.cwd ?? t.cwd, argv: t.foreground?.argv ?? ["agy"], root: root(m) };
   s.files = await files(m, s);
   s.bytes = s.files.reduce((n, f) => n + f.size, 0);
   const homes = await sh(m.name, 'LC_ALL=C grep -a -h -o -E "(/Users/[A-Za-z0-9._-]+|/home/[A-Za-z0-9._-]+|/root)/" "$@" 2>/dev/null | sort -u', s.files.map((f) => f.path), 60000).catch(() => "");
@@ -77,10 +80,10 @@ export async function stop(m, t, s) {
 
 /** Where its files go: the same places under the target's ~/.gemini. */
 export function destinations(s, rw, dst) {
-  return s.files.map((f) => {
-    const rel = f.path.slice(f.path.indexOf("/.gemini/antigravity-cli/") + "/.gemini/antigravity-cli/".length);
-    return { ...f, to: `${dst.home}/.gemini/antigravity-cli/${rel}`, mode: "put", rewrite: f.kind === "brain" && TEXT.test(f.path) };
-  });
+  const src = s.root + "/";
+  return s.files
+    .filter((f) => f.path.startsWith(src))
+    .map((f) => ({ ...f, to: `${dst.home}/.gemini/antigravity-cli/${f.path.slice(src.length)}`, mode: "put", rewrite: f.kind === "brain" && TEXT.test(f.path) }));
 }
 
 /** Warnings for the review. */

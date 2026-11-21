@@ -1,6 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { compile, claudeProjectDir, homesIn, homeOf, within, planRules } from "../mods/roam/paths.js";
+import { compile, claudeProjectDir, homesIn, homeOf, within, planRules, insideRoots } from "../mods/roam/paths.js";
+
+test("insideRoots accepts session files and nothing else", () => {
+  const roots = ["/Users/ana/.gemini/antigravity-cli/brain/abc", "/Users/ana/.gemini/antigravity-cli/conversations/abc.db"];
+  assert.ok(insideRoots("/Users/ana/.gemini/antigravity-cli/brain/abc/plan.md", roots));
+  assert.ok(insideRoots("/Users/ana/.gemini/antigravity-cli/conversations/abc.db", roots));
+  // A path smuggled in through a file name with a newline in it.
+  assert.ok(!insideRoots("/Users/ana/.ssh/id_rsa", roots));
+  assert.ok(!insideRoots("/Users/ana/.gemini/antigravity-cli/brain/abc/../../../../.ssh/id_rsa", roots));
+  assert.ok(!insideRoots("/Users/ana/.gemini/antigravity-cli/brain/abc/a\nb", roots));
+  assert.ok(!insideRoots("/Users/ana/.gemini/antigravity-cli/brain/abcdef/x", roots));
+  assert.ok(!insideRoots("relative/path", roots));
+});
 
 test("claudeProjectDir matches Claude Code's folder names", () => {
   assert.equal(claudeProjectDir("/Users/ana/Projects/_hop-e2e"), "-Users-ana-Projects--hop-e2e");

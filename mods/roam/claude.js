@@ -13,7 +13,7 @@
 import { readTextFile, hc } from "herdr";
 import { sh, hcj, sleep, q, isShell, interruptUntilGone } from "./machine.js";
 import { resumeArgv as rebuild, sessionFromArgv, isClaude } from "./claude-args.js";
-import { claudeProjectDir, homesIn } from "./paths.js";
+import { claudeProjectDir, homesIn, insideRoots } from "./paths.js";
 
 export const id = "claude-code";
 export const name = "Claude Code";
@@ -40,10 +40,13 @@ export async function files(m, s) {
   const out = await sh(m.name, LIST, roots, 120000);
   const todos = await sh(m.name, `[ -d "$1" ] && find "$1" -type f -name "$2*" 2>/dev/null | while IFS= read -r f; do printf '%s\\t%s\\n' "$(wc -c < "$f" | tr -d ' ')" "$f"; done; true`, [`${cfg}/todos`, s.id]);
   const list = [];
+  const todo = (p) => p.startsWith(`${cfg}/todos/${s.id}`) && !p.slice(`${cfg}/todos/`.length).includes("/") && insideRoots(p, [`${cfg}/todos`]);
   for (const line of (out + todos).split("\n")) {
     const tab = line.indexOf("\t");
     if (tab < 0) continue;
     const path = line.slice(tab + 1);
+    // Only the session's own files, whatever the file names say.
+    if (!insideRoots(path, roots) && !todo(path)) continue;
     const kind =
       path === s.transcript ? "transcript"
       : path.startsWith(`${s.projectDir}/${s.id}/`) ? "session"

@@ -119,6 +119,16 @@ export function homeOf(path) {
   return m && m[1] !== "/Users/Shared" ? m[1] : null;
 }
 
+/**
+ * Whether `path` is one of `roots` or inside one, with no `..` segment and no
+ * control characters. File lists come from `find`, one path per line, and a
+ * file an agent named with a newline must not smuggle in another path.
+ */
+export function insideRoots(path, roots) {
+  if (typeof path !== "string" || !path.startsWith("/") || /[\x00-\x1f\x7f]/.test(path) || /(^|\/)\.\.(\/|$)/.test(path)) return false;
+  return roots.some((r) => path === r || path.startsWith(r.endsWith("/") ? r : r + "/"));
+}
+
 /** `child` is `parent` or inside it. */
 export function within(child, parent) {
   const c = trimSlash(child);
